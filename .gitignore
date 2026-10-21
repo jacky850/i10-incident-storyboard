@@ -1,0 +1,10 @@
+# Licensed or large data never goes to GitHub: INRIX, AZ511 stills, StreetLight
+data/
+out/
+*.tar
+*.zip
+
+# Local paths to licensed data
+config/paths.json
+__pycache__/
+.DS_Store

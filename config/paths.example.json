@@ -1,0 +1,6 @@
+{
+  "az511_archive": "~/path/to/T-ITS-Camera/cloud_archive/production",
+  "camera_list": "~/path/to/T-ITS-Camera/config/i10_downtown_airport_candidates.csv",
+  "inrix_speed_dir": "~/path/to/inrix_1_min_export",
+  "inrix_incidents_csv": "~/path/to/inrix_incidents_export/data.csv"
+}

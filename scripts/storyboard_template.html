@@ -1,0 +1,398 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Incident Storyboard</title>
+<style>
+  :root {
+    --bg: #f5f5f2; --panel: #ffffff; --ink: #1b1b19; --muted: #66665f; --line: #dcdcd6;
+    --adot: #003863; --queue: #d55e00; --slow: #e69f00; --free: #0072b2; --none: #a5a5a0;
+    --accent-soft: #e8eef4;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #141414; --panel: #1f1f1f; --ink: #ececea; --muted: #a3a39c; --line: #383836;
+      --adot: #7fb0e0; --none: #6b6b66; --accent-soft: #1d2a36;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #141414; --panel: #1f1f1f; --ink: #ececea; --muted: #a3a39c; --line: #383836;
+    --adot: #7fb0e0; --none: #6b6b66; --accent-soft: #1d2a36;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.45 -apple-system, "Segoe UI", system-ui, sans-serif; }
+  .wrap { max-width: 1480px; margin: 0 auto; padding: 0 16px; }
+  header.top { padding: 18px 0 8px; }
+  h1 { margin: 0 0 4px; font-size: 22px; color: var(--adot); letter-spacing: -0.01em; }
+  .shows { color: var(--muted); margin: 0 0 6px; max-width: 900px; }
+  .record { font-size: 13px; color: var(--muted); }
+  .record b { color: var(--ink); }
+  .bar { position: sticky; top: 0; z-index: 5; background: color-mix(in srgb, var(--bg) 92%, transparent);
+         backdrop-filter: blur(6px); border-bottom: 1px solid var(--line); padding: 8px 0; }
+  .bar .wrap { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .clock { font-variant-numeric: tabular-nums; font-weight: 650; font-size: 18px; min-width: 130px; }
+  .clock small { display: block; font-weight: 400; font-size: 11px; color: var(--muted); }
+  button { font: inherit; color: var(--ink); background: var(--panel); border: 1px solid var(--line); border-radius: 7px;
+           padding: 5px 10px; cursor: pointer; }
+  button:hover { border-color: var(--adot); }
+  button.on { background: var(--adot); color: #fff; border-color: var(--adot); }
+  #slider { flex: 1 1 260px; accent-color: var(--adot); }
+  .chapters { display: flex; flex-wrap: wrap; gap: 6px; }
+  .ops { margin: 14px 0; background: var(--panel); border: 1px solid var(--line); border-left: 5px solid var(--adot);
+         border-radius: 10px; padding: 12px 16px; display: grid; grid-template-columns: 1fr auto; gap: 8px 24px; align-items: center; }
+  .ops .label { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+  .ops .line { font-size: 18px; font-weight: 600; }
+  .ops .fc { display: flex; gap: 14px; font-variant-numeric: tabular-nums; font-size: 13px; }
+  .ops .fc div { text-align: center; }
+  .ops .fc b { display: block; font-size: 15px; }
+  .tier { display: inline-block; font-size: 12px; padding: 2px 8px; border-radius: 99px; background: var(--accent-soft); color: var(--adot); margin-top: 4px; }
+  .tier.fired { background: var(--queue); color: #fff; }
+  main { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); gap: 16px; }
+  @media (max-width: 1100px) { main { grid-template-columns: 1fr; } .ops { grid-template-columns: 1fr; } }
+  h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--adot); margin: 4px 0 8px; }
+  .legend { display: flex; flex-wrap: wrap; gap: 12px; font-size: 12px; color: var(--muted); margin-bottom: 8px; }
+  .legend i { display: inline-block; width: 12px; height: 12px; border-radius: 3px; vertical-align: -2px; margin-right: 4px; }
+  .cams { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 10px; }
+  .cam { background: var(--panel); border-radius: 9px; overflow: hidden; border: 4px solid var(--none); position: relative; }
+  .cam img { display: block; width: 100%; aspect-ratio: 16 / 9; object-fit: cover; background: #000; cursor: zoom-in; }
+  .cam .noimg { aspect-ratio: 16 / 9; display: grid; place-items: center; color: var(--muted); background: var(--bg); font-size: 12px; }
+  .cam .role { position: absolute; top: 6px; left: 6px; font-size: 10px; font-weight: 700; letter-spacing: .05em; padding: 2px 6px;
+               border-radius: 4px; background: rgba(0,0,0,.72); color: #fff; }
+  .cam .moved { position: absolute; top: 6px; right: 6px; font-size: 10px; font-weight: 700; padding: 2px 6px; border-radius: 4px;
+                background: #f0e442; color: #000; display: none; }
+  .cam .cap { padding: 6px 8px 8px; font-size: 12px; }
+  .cam .cap b { font-size: 13px; }
+  .cam .cap .sub { color: var(--muted); display: flex; justify-content: space-between; gap: 6px; }
+  .cam .cap .q { margin-top: 2px; }
+  .cam.inq .cap .q { color: var(--queue); font-weight: 600; }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px; }
+  canvas { width: 100%; display: block; cursor: crosshair; }
+  .events { list-style: none; margin: 0; padding: 0; max-height: 420px; overflow: auto; font-size: 13px; }
+  .events li { display: grid; grid-template-columns: 50px 70px 1fr; gap: 8px; padding: 5px 4px; border-bottom: 1px solid var(--line); cursor: pointer; }
+  .events li:hover { background: var(--accent-soft); }
+  .events li.future { opacity: .45; }
+  .events .k { font-size: 11px; font-weight: 700; color: var(--muted); text-transform: uppercase; }
+  .events .t { font-variant-numeric: tabular-nums; }
+  footer { margin: 22px 0 40px; font-size: 12px; color: var(--muted); display: grid; gap: 10px; }
+  footer table { border-collapse: collapse; }
+  footer th { background: #003863; color: #fff; font-weight: 600; text-align: left; padding: 4px 10px; }
+  footer td { padding: 4px 10px; border-bottom: 1px solid var(--line); color: var(--ink); }
+  .notice { border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px; }
+  dialog { border: 0; padding: 0; background: #000; max-width: 96vw; }
+  dialog img { display: block; max-width: 96vw; max-height: 90vh; }
+  dialog::backdrop { background: rgba(0,0,0,.8); }
+</style>
+</head>
+<body>
+<header class="top wrap">
+  <h1 id="title"></h1>
+  <p class="shows" id="shows"></p>
+  <div class="record" id="record"></div>
+</header>
+<div class="bar">
+  <div class="wrap">
+    <div class="clock" id="clock"></div>
+    <button id="play" aria-label="Play">▶ Play</button>
+    <button data-step="-1" aria-label="Back 1 minute">−1 min</button>
+    <button data-step="1" aria-label="Forward 1 minute">+1 min</button>
+    <input type="range" id="slider" min="0" step="1" aria-label="Time">
+    <div class="chapters" id="chapters"></div>
+  </div>
+</div>
+<div class="wrap">
+  <section class="ops" aria-live="polite">
+    <div>
+      <div class="label">What the TOC would read at this minute (INRIX speeds only, past data only)</div>
+      <div class="line" id="msg"></div>
+      <span class="tier" id="tier"></span>
+    </div>
+    <div class="fc" id="fc"></div>
+  </section>
+  <main>
+    <section>
+      <h2>Cameras, downstream at top left to upstream</h2>
+      <div class="legend">
+        <span><i style="background:var(--queue)"></i>queued (speed &lt; 50% of usual)</span>
+        <span><i style="background:var(--slow)"></i>slow (50–70%)</span>
+        <span><i style="background:var(--free)"></i>free flow</span>
+        <span><i style="background:#f0e442"></i>camera just moved by an operator</span>
+      </div>
+      <div class="cams" id="cams"></div>
+    </section>
+    <section>
+      <h2>Speed along the road and the queue</h2>
+      <div class="panel">
+        <canvas id="ts" height="430" aria-label="Time and distance diagram of speeds, with the queue head and tail"></canvas>
+        <div class="legend" style="margin-top:6px">
+          <span>Up the page is the direction of travel. Colour: speed over the usual speed for that hour and weekday.</span>
+          <span>— tail of the queue &nbsp; ┄ head &nbsp; ▲ forecast range of the tail</span>
+        </div>
+      </div>
+      <h2 style="margin-top:14px">Timeline</h2>
+      <div class="panel"><ul class="events" id="events"></ul></div>
+    </section>
+  </main>
+  <footer>
+    <div id="score"></div>
+    <table id="truth"></table>
+    <div id="caveats"></div>
+    <div class="notice">23 U.S.C. § 407: reports, surveys, schedules, lists or data compiled or collected for identifying,
+      evaluating or planning the safety enhancement of potential crash sites or hazardous roadway conditions shall not be subject
+      to discovery or admitted into evidence. Camera stills are AZ511 public images archived by ASU for research; they are not
+      for publication without ADOT's written permission.</div>
+  </footer>
+</div>
+<dialog id="zoom"><img alt="Full-size camera frame"></dialog>
+<script>
+const D = /*__DATA__*/null;
+const $ = (s) => document.querySelector(s);
+const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+const T = D.times.map((t) => new Date(t));
+let k = 0, timer = null;
+
+const ROLE = { downstream: "DOWNSTREAM", site: "SITE", queue: "QUEUE", "queue tail": "QUEUE TAIL" };
+function roleLabel(c) {
+  if (c.dead) return "NO FEED";
+  const r = (c.role || "").toLowerCase();
+  for (const key of Object.keys(ROLE)) if (r.startsWith(key)) return ROLE[key];
+  return r ? r.toUpperCase().slice(0, 18) : "";
+}
+function hm(d) { return d.toTimeString().slice(0, 5); }
+function hms(d) { return d.toTimeString().slice(0, 8); }
+function colour(r) { return r == null ? css("--none") : r < 0.5 ? css("--queue") : r < 0.7 ? css("--slow") : css("--free"); }
+function rampColour(r) {
+  if (r == null) return "rgba(128,128,128,.18)";
+  const stops = [[0.2, [213, 94, 0]], [0.5, [230, 159, 0]], [0.75, [238, 232, 213]], [1.05, [0, 114, 178]]];
+  const v = Math.max(0.2, Math.min(1.05, r));
+  for (let i = 1; i < stops.length; i++) {
+    if (v <= stops[i][0]) {
+      const [a, ca] = stops[i - 1], [b, cb] = stops[i], f = (v - a) / (b - a);
+      return `rgb(${ca.map((x, j) => Math.round(x + f * (cb[j] - x))).join(",")})`;
+    }
+  }
+  return "rgb(0,114,178)";
+}
+function dist(d) { return d === 0 ? "at the incident" : `${Math.abs(d).toFixed(2)} km ${d > 0 ? "downstream" : "upstream"}`; }
+
+function header() {
+  $("#title").textContent = D.case.title;
+  document.title = `${D.case.id[0]} · ${D.case.title.split(":")[0]} storyboard`;
+  $("#shows").textContent = D.case.shows;
+  const r = D.case.record;
+  const ids = [r.ers && `ERS ${r.ers}`, r.inrix && "INRIX"].filter(Boolean).join(" + ") || "no record";
+  $("#record").innerHTML = `<b>Record:</b> ${r.text} · ${ids} · ${r.start.slice(11)}–${(r.end || "").slice(11)} · I-10 ${D.case.direction}`;
+  const ch = $("#chapters");
+  [{ label: "Record", t: D.start }, ...D.chapters].forEach((c) => {
+    const b = document.createElement("button");
+    b.textContent = `${c.label} ${c.t.slice(11)}`;
+    b.onclick = () => seek(D.times.indexOf(c.t));
+    ch.appendChild(b);
+  });
+}
+
+function cams() {
+  const box = $("#cams");
+  D.cameras.forEach((c, i) => {
+    const el = document.createElement("article");
+    el.className = "cam"; el.id = `cam${i}`;
+    el.innerHTML = `${c.frames.length ? `<img alt="Camera ${c.id}, ${c.location}">` : `<div class="noimg">${c.dead ? "No live feed on any of the 8 days" : "No frames"}</div>`}
+      <span class="role">${roleLabel(c)}</span><span class="moved">CAMERA MOVED</span>
+      <div class="cap"><b>${c.id}</b> ${c.location}
+        <div class="sub"><span>${dist(c.d_km)}</span><span class="ft"></span></div>
+        <div class="q"></div></div>`;
+    const img = el.querySelector("img");
+    if (img) img.onclick = () => { $("#zoom img").src = img.src; $("#zoom").showModal(); };
+    box.appendChild(el);
+  });
+  $("#zoom").onclick = () => $("#zoom").close();
+}
+
+function frameAt(c, t) {
+  let best = null;
+  for (const f of c.frames) { const ft = new Date(f[0]); if (ft <= t) best = [ft, f[1]]; else break; }
+  return best;
+}
+
+function renderCams() {
+  const t = new Date(T[k].getTime() + 59000);
+  D.cameras.forEach((c, i) => {
+    const el = $(`#cam${i}`);
+    const r = c.ratio[k];
+    el.style.borderColor = c.dead ? css("--none") : colour(r);
+    const f = frameAt(c, t);
+    const img = el.querySelector("img");
+    const ft = el.querySelector(".ft");
+    if (img) {
+      if (f && t - f[0] < 4 * 60000) { if (!img.src.endsWith(f[1])) img.src = f[1]; img.style.opacity = 1; ft.textContent = `frame ${hms(f[0])}`; }
+      else { img.style.opacity = .25; ft.textContent = "no recent frame"; }
+    }
+    const inq = D.tail[k] != null && D.tail[k] <= c.s_km && D.head[k] >= c.s_km;
+    el.classList.toggle("inq", inq && !c.dead);
+    el.querySelector(".q").textContent = c.dead ? "" :
+      (inq ? "inside the queue now" : r == null ? "no speed data" : r < 0.7 ? "slow, not this queue" : "free flow") +
+      (c.queue ? ` · queue here ${c.queue[0]}–${c.queue[1]}` : "");
+    const moved = c.ptz_moves.some((m) => { const d = t - new Date(m); return d >= 0 && d < 3 * 60000; });
+    el.querySelector(".moved").style.display = moved ? "block" : "none";
+  });
+}
+
+function renderOps() {
+  $("#msg").textContent = D.messages[k];
+  const f = D.forecast[k];
+  $("#fc").innerHTML = f ? [5, 15, 30].map((h) => {
+    const [lo, mid, hi] = f[String(h)];
+    return `<div><span>+${h} min</span><b>${(mid / 1.609).toFixed(1)} mi</b><span>${(lo / 1.609).toFixed(1)}–${(hi / 1.609).toFixed(1)}</span></div>`;
+  }).join("") : "";
+  const tier = $("#tier");
+  if (D.tier1) {
+    const fired = T[k] >= new Date(D.tier1);
+    tier.classList.toggle("fired", fired);
+    tier.textContent = fired ? `Tier 1 proposed since ${D.tier1.slice(11)}: AZ511 and sign warning (queue ≥ 0.25 mi)` :
+      "Tier 1 not reached (queue < 0.25 mi)";
+  } else tier.textContent = "Tier 1 never reached in this window";
+}
+
+const ts = $("#ts");
+const M = { l: 46, r: 92, t: 22, b: 30 };
+const TS_H = 430;
+function tsGeom() {
+  const w = ts.clientWidth, h = TS_H;
+  const s0 = D.s_range[0], s1 = D.s_range[1];
+  return { w, h, x: (i) => M.l + (i / (T.length - 1)) * (w - M.l - M.r), y: (s) => M.t + (1 - (s - s0) / (s1 - s0)) * (h - M.t - M.b) };
+}
+function renderTS() {
+  const dpr = window.devicePixelRatio || 1;
+  ts.width = ts.clientWidth * dpr; ts.height = 430 * dpr; ts.style.height = "430px";
+  const ctx = ts.getContext("2d"); ctx.scale(dpr, dpr);
+  const g = tsGeom(); const w = ts.clientWidth; g.w = w;
+  const xi = (i) => M.l + (i / (T.length - 1)) * (w - M.l - M.r);
+  const cw = (w - M.l - M.r) / (T.length - 1) + 0.6;
+  ctx.fillStyle = css("--panel"); ctx.fillRect(0, 0, w, 430);
+  ctx.save();
+  ctx.beginPath(); ctx.rect(M.l, M.t, w - M.l - M.r, TS_H - M.t - M.b); ctx.clip();
+  D.segments.forEach(([a, b], j) => {
+    const y0 = g.y(b), y1 = g.y(a);
+    for (let i = 0; i < T.length; i++) { ctx.fillStyle = rampColour(D.grid[i][j]); ctx.fillRect(xi(i), y0, cw, y1 - y0 + 0.5); }
+  });
+  ctx.restore();
+  ctx.font = "11px system-ui"; ctx.textBaseline = "middle";
+  D.cameras.forEach((c) => {
+    const y = g.y(c.s_km);
+    ctx.strokeStyle = c.dead ? "rgba(120,120,120,.8)" : "rgba(20,20,20,.55)"; ctx.setLineDash(c.dead ? [3, 3] : []);
+    ctx.beginPath(); ctx.moveTo(M.l, y); ctx.lineTo(w - M.r, y); ctx.stroke(); ctx.setLineDash([]);
+    ctx.fillStyle = css("--ink"); ctx.fillText(`${c.id} ${c.dead ? "(no feed)" : ""}`, w - M.r + 4, y);
+  });
+  const line = (arr, dash) => {
+    ctx.strokeStyle = css("--ink"); ctx.lineWidth = 2; ctx.setLineDash(dash); ctx.beginPath();
+    let on = false;
+    arr.forEach((v, i) => { if (v == null) { on = false; return; } const p = [xi(i), g.y(v)]; on ? ctx.lineTo(...p) : ctx.moveTo(...p); on = true; });
+    ctx.stroke(); ctx.setLineDash([]); ctx.lineWidth = 1;
+  };
+  line(D.tail, []); line(D.head, [5, 4]);
+  const f = D.forecast[k];
+  if (f && D.head[k] != null) {
+    ctx.save();
+    ctx.beginPath(); ctx.rect(M.l, M.t, w - M.l - M.r, TS_H - M.t - M.b); ctx.clip();
+    ctx.fillStyle = "rgba(0,56,99,.22)";
+    ctx.beginPath(); ctx.moveTo(xi(k), g.y(D.tail[k]));
+    [5, 15, 30].forEach((h) => { if (k + h < T.length) ctx.lineTo(xi(k + h), g.y(D.head[k] - f[String(h)][2])); });
+    [30, 15, 5].forEach((h) => { if (k + h < T.length) ctx.lineTo(xi(k + h), g.y(D.head[k] - f[String(h)][0])); });
+    ctx.closePath(); ctx.fill();
+    ctx.restore();
+  }
+  const si = D.times.indexOf(D.start);
+  if (si >= 0) {
+    const x = xi(si), y = g.y(D.s_inc);
+    ctx.strokeStyle = "#000"; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.moveTo(x - 6, y - 6); ctx.lineTo(x + 6, y + 6); ctx.moveTo(x + 6, y - 6); ctx.lineTo(x - 6, y + 6); ctx.stroke(); ctx.lineWidth = 1;
+  }
+  ctx.strokeStyle = css("--adot"); ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(xi(k), M.t - 8); ctx.lineTo(xi(k), 430 - M.b); ctx.stroke(); ctx.lineWidth = 1;
+  ctx.fillStyle = css("--muted"); ctx.textBaseline = "top"; ctx.textAlign = "center";
+  for (let i = 0; i < T.length; i += Math.max(1, Math.round(T.length / 8))) ctx.fillText(hm(T[i]), xi(i), 430 - M.b + 6);
+  ctx.textAlign = "right"; ctx.textBaseline = "middle";
+  // ticks at whole km from the incident; positive is downstream
+  const step = (D.s_range[1] - D.s_range[0]) > 8 ? 2 : 1;
+  for (let d = Math.ceil(D.s_range[0] - D.s_inc); d <= D.s_range[1] - D.s_inc; d += step) {
+    ctx.fillText(d === 0 ? "0 km" : `${d > 0 ? "+" : "−"}${Math.abs(d)} km`, M.l - 6, g.y(D.s_inc + d));
+  }
+  ctx.textAlign = "left";
+  D.records.filter((r) => r.kind !== "Weather").forEach((r) => {
+    const i = D.times.indexOf(r.t); if (i < 0) return;
+    ctx.fillStyle = r.kind === "ERS" ? css("--adot") : css("--muted");
+    ctx.fillRect(xi(i) - 1, 4, 3, 10);
+  });
+}
+ts.addEventListener("click", (e) => {
+  const rect = ts.getBoundingClientRect(); const w = rect.width;
+  const i = Math.round(((e.clientX - rect.left - M.l) / (w - M.l - M.r)) * (T.length - 1));
+  seek(Math.max(0, Math.min(T.length - 1, i)));
+});
+
+function events() {
+  const list = [];
+  D.records.forEach((r) => list.push({ t: r.t, k: r.kind, text: r.text + (r.d_km != null && Math.abs(r.d_km) > 0.05 ? ` (${dist(r.d_km)})` : "") }));
+  D.cameras.forEach((c) => {
+    if (c.queue) list.push({ t: `${D.times[0].slice(0, 11)}${c.queue[0]}`, k: "Queue", text: `Queue reaches camera ${c.id} ${c.location} (${dist(c.d_km)})` });
+    const near = c.ptz_moves.filter((m) => m >= D.times[0]);
+    if (near.length) list.push({ t: near[0].slice(0, 16), k: "Camera", text: `Operator moves camera ${c.id} ${c.location}${near.length > 1 ? ` (${near.length} moves in the window)` : ""}` });
+  });
+  if (D.tier1) list.push({ t: D.tier1, k: "Tier 1", text: "Queue reaches 0.25 mi: AZ511 and sign warning proposed" });
+  D.chapters.forEach((c) => list.push({ t: c.t, k: "Queue", text: c.label }));
+  list.sort((a, b) => a.t.localeCompare(b.t));
+  const ul = $("#events");
+  list.forEach((e) => {
+    const li = document.createElement("li");
+    li.dataset.t = e.t;
+    li.innerHTML = `<span class="t">${e.t.slice(11, 16)}</span><span class="k">${e.k}</span><span>${e.text}</span>`;
+    li.onclick = () => { const i = D.times.indexOf(e.t.slice(0, 16)); if (i >= 0) seek(i); };
+    ul.appendChild(li);
+  });
+}
+function renderEvents() {
+  const now = D.times[k];
+  document.querySelectorAll("#events li").forEach((li) => li.classList.toggle("future", li.dataset.t.slice(0, 16) > now));
+}
+
+function footer() {
+  const s = D.forecast_score;
+  $("#score").innerHTML = `<b>Forecast check</b> (queue length forecast from past speeds only, checked against the length seen later):
+    5 min ${pct(s["5"])}, 15 min ${pct(s["15"])}, 30 min ${pct(s["30"])} of forecasts held the observed length.
+    Largest queue in the window: ${(D.summary.max_queue_km / 1.609).toFixed(1)} mi (${D.summary.max_queue_km} km).`;
+  $("#truth").innerHTML = `<tr><th>Layer</th><th>Source</th><th>Status in phase 1</th></tr>
+    <tr><td>Camera frames</td><td>AZ511 stills archived about once a minute</td><td>Real; shown as evidence, not yet measured</td></tr>
+    <tr><td>Traffic state</td><td>INRIX 1-minute speeds, over the INRIX usual speed for the hour and weekday</td><td>Real; the Track 1 counterfactual replaces the usual speed later</td></tr>
+    <tr><td>Queue head and tail</td><td>Congested road segments connected to the incident</td><td>Derived; segment resolution, INRIX latency of a few minutes</td></tr>
+    <tr><td>Forecast</td><td>Straight-line trend of the last 10 minutes</td><td>Simple stand-in; phase 2 uses camera evidence and wave physics</td></tr>
+    <tr><td>Camera moves</td><td>Change between consecutive frames</td><td>Detected automatically; operator actions inferred, not logged</td></tr>
+    <tr><td>Records</td><td>AZ511 events (ERS) every 5 minutes, INRIX incidents, KPHX weather</td><td>Real</td></tr>`;
+  $("#caveats").innerHTML = D.caveats.length ? `<b>Limits of this case:</b> ${D.caveats.join("; ")}.` : "";
+}
+function pct(x) { return x && x.inside != null ? `${Math.round(x.inside * 100)}% (n=${x.n})` : "n/a"; }
+
+function seek(i) {
+  k = i; $("#slider").value = i;
+  $("#clock").innerHTML = `${hm(T[k])}<small>${T[k].toDateString()}</small>`;
+  renderCams(); renderOps(); renderTS(); renderEvents();
+}
+
+header(); cams(); events(); footer();
+$("#slider").max = T.length - 1;
+$("#slider").oninput = (e) => seek(+e.target.value);
+document.querySelectorAll("[data-step]").forEach((b) => b.onclick = () => seek(Math.max(0, Math.min(T.length - 1, k + +b.dataset.step))));
+$("#play").onclick = () => {
+  if (timer) { clearInterval(timer); timer = null; $("#play").textContent = "▶ Play"; $("#play").classList.remove("on"); return; }
+  timer = setInterval(() => { if (k >= T.length - 1) return $("#play").click(); seek(k + 1); }, 450);
+  $("#play").textContent = "❚❚ Pause"; $("#play").classList.add("on");
+};
+document.addEventListener("keydown", (e) => {
+  if (e.key === "ArrowRight") seek(Math.min(T.length - 1, k + 1));
+  if (e.key === "ArrowLeft") seek(Math.max(0, k - 1));
+  if (e.key === " ") { e.preventDefault(); $("#play").click(); }
+});
+window.addEventListener("resize", renderTS);
+seek(Math.max(0, D.times.indexOf(D.start) - 5));
+</script>
+</body>
+</html>

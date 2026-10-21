@@ -1,0 +1,132 @@
+{
+  "_about": "Incident cases for the camnet real-event demo. Times are local (America/Phoenix, UTC-7). Distances d_km are along the direction of travel from the incident record; negative is upstream. Roles: site = sees the scene, queue = the connected queue passes it, downstream = unaffected. Frames come from the AZ511 archive via scripts/tarindex.py; no images or INRIX data are stored in this repository.",
+  "cases": [
+    {
+      "id": "A_0913_7thst",
+      "title": "Sun Sep 13: car into a light pole, I-10 EB near 7th St",
+      "shows": "The full chain on one small event in daylight: scene camera, queue through the tunnel and back, downstream unaffected",
+      "direction": "EB",
+      "record": {"ers": "1005221", "inrix": "c8a5cae7-a04d-4c95-a508-d72d7dc15ddc", "start": "2026-09-13T11:53", "end": "2026-09-13T14:16",
+                 "text": "Infrastructure damage on I-10 Eastbound near N 3rd St (MP 146)", "lat": 33.462146, "lon": -112.066647},
+      "window": ["2026-09-13T11:40", "2026-09-13T12:40"],
+      "cameras": [
+        {"id": "787", "d_km": 2.10, "role": "downstream"},
+        {"id": "786", "d_km": 2.00, "role": "downstream"},
+        {"id": "785", "d_km": 1.48, "role": "downstream"},
+        {"id": "784", "d_km": 0.10, "role": "site", "queue": ["11:53", "12:50"], "ptz_moves_from": "11:53"},
+        {"id": "782", "d_km": -0.34, "role": "queue", "queue": ["11:53", "12:50"]},
+        {"id": "780", "d_km": -0.59, "role": "queue", "queue": ["11:53", "12:22"]},
+        {"id": "778", "d_km": -0.81, "role": "queue", "queue": ["11:53", "12:22"]},
+        {"id": "776", "d_km": -1.05, "role": "queue tail", "queue": ["11:58", "12:04"]},
+        {"id": "774", "d_km": -1.35, "role": "queue tail", "queue": ["11:58", "12:04"]},
+        {"id": "772", "d_km": -1.71, "role": "queue tail", "queue": ["11:58", "12:04"]}
+      ],
+      "key_frames": {"784": ["11:53", "12:01", "12:03"], "780": ["11:45", "12:00", "12:25"]},
+      "impact": {"max_queue_km": 1.7, "peak_extra_travel_min": 2.0},
+      "caveats": ["Small delay", "The ERS text says infrastructure damage; the frames show a car by a light pole, a DPS unit and a flatbed tow truck"]
+    },
+    {
+      "id": "B_0916_tunnel",
+      "title": "Wed Sep 16: crash blocking several lanes, I-10 EB near 16th St",
+      "shows": "Scale: a 5.8 km queue sweeping 10 cameras, scene camera with emergency lights, downstream free, night to day",
+      "direction": "EB",
+      "record": {"ers": "1006996", "inrix": null, "start": "2026-09-16T05:38", "end": "2026-09-16T07:42",
+                 "text": "Crash blocking the exit ramp on I-10 Eastbound near N 7th St (MP 146); ERS subtype crashMultilanes",
+                 "lat": 33.46173, "lon": -112.059723},
+      "window": ["2026-09-16T05:25", "2026-09-16T07:15"],
+      "cameras": [
+        {"id": "787", "d_km": 1.44, "role": "downstream"},
+        {"id": "786", "d_km": 1.34, "role": "downstream"},
+        {"id": "785", "d_km": 0.82, "role": "site", "queue": ["05:39", "07:54"], "ptz_moves_from": "05:36"},
+        {"id": "784", "d_km": -0.56, "role": "queue", "queue": ["05:38", "06:43"], "ptz_moves_from": "05:41"},
+        {"id": "782", "d_km": -1.00, "role": "queue", "queue": ["05:38", "06:43"]},
+        {"id": "780", "d_km": -1.25, "role": "queue", "queue": ["05:39", "06:43"]},
+        {"id": "778", "d_km": -1.47, "role": "queue", "queue": ["05:39", "06:43"]},
+        {"id": "776", "d_km": -1.71, "role": "queue", "queue": ["05:41", "06:43"]},
+        {"id": "774", "d_km": -2.01, "role": "queue", "queue": ["05:41", "06:43"]},
+        {"id": "772", "d_km": -2.37, "role": "queue", "queue": ["05:41", "06:43"], "ptz_moves_from": "05:38"},
+        {"id": "771", "d_km": -3.64, "role": "queue", "queue": ["05:43", "06:43"]},
+        {"id": "770", "d_km": -5.08, "role": "queue", "queue": ["05:45", "06:43"]}
+      ],
+      "key_frames": {"785": ["05:30", "05:38", "05:47"], "782": ["05:30", "05:50", "06:45"], "771": ["05:30", "05:50", "07:00"]},
+      "impact": {"max_queue_km": 5.8, "peak_extra_travel_min": 21.8},
+      "caveats": ["Dark until about 06:07; queue visible as tail lights", "Camera 785 moved at 05:36, 2 min before the ERS record", "Bottleneck between 785 and 786, downstream of the recorded location", "Merges with the morning peak after 06:30"]
+    },
+    {
+      "id": "C_0915_broadway_fire",
+      "title": "Tue Sep 15: vehicle fire, I-10 EB Broadway Curve near US-60",
+      "shows": "The pilot corridor: queue tail placed between cameras, a dead camera (1257) bridged by wave physics, an event INRIX logged and ERS did not",
+      "direction": "EB",
+      "record": {"ers": null, "inrix": "faaa171a-06b6-4dc3-a356-304dbc5e877e", "start": "2026-09-15T17:34", "end": "2026-09-15T18:26",
+                 "text": "Restrictions due to vehicle fire on I-10 Eastbound at Exits 152, 154, 155 US-60", "lat": 33.371594, "lon": -111.968142,
+                 "nearest_ers": "1006518, disabled vehicle on the left shoulder near Baseline Rd, 16:35-17:57, 1.7 km north"},
+      "window": ["2026-09-15T17:15", "2026-09-15T18:55"],
+      "cameras": [
+        {"id": "1261", "d_km": -2.04, "role": "queue", "queue": ["17:38", "18:32"], "note": "faces WB; EB at the left edge"},
+        {"id": "1260", "d_km": -2.28, "role": "queue", "queue": ["17:38", "18:26"], "note": "best view: near roadway is EB, fixed view"},
+        {"id": "1259", "d_km": -3.15, "role": "queue", "queue": ["17:45", "18:11"]},
+        {"id": "1258", "d_km": -3.71, "role": "queue tail", "queue": ["17:45", "18:11"]},
+        {"id": "1257", "d_km": -4.36, "role": "no feed all 8 days"},
+        {"id": "1256", "d_km": -4.67, "role": "upstream of the tail"}
+      ],
+      "key_frames": {"1260": ["17:25", "18:05", "18:35"], "1261": ["17:25", "17:55"]},
+      "impact": {"max_queue_km": 4.6, "peak_extra_travel_min": 21.5},
+      "caveats": ["The fire itself is 2 km beyond the last camera", "Dusk after 18:35"]
+    },
+    {
+      "id": "D_0915_university_closure",
+      "title": "Tue Sep 15: crash and exit-ramp closure, I-10 WB at University Dr",
+      "shows": "The scene seen through operator PTZ zoom (8.9x, 13.3x on the overlay): heavy equipment over the wall, a wrecked truck, 4+ fire engines; a 12.7 h closure",
+      "direction": "WB",
+      "record": {"ers": "1006076", "inrix": "f73e87bc-bcf2-4c1c-bb94-3668832212d8", "start": "2026-09-15T07:08", "end": "2026-09-15T19:51",
+                 "text": "Crash. Exit ramp closed on I-10 Westbound near E University Dr (MP 151)", "lat": 33.415792, "lon": -112.015263},
+      "window": ["2026-09-15T07:00", "2026-09-15T08:00"],
+      "cameras": [
+        {"id": "1255", "d_km": -0.12, "role": "site", "ptz_moves_from": "07:13", "note": "07:13 zoom 8.9x on the arterial queue; 07:15 13.3x on the scene"},
+        {"id": "791", "d_km": 0.70, "role": "downstream"},
+        {"id": "792", "d_km": -0.56, "role": "upstream"}
+      ],
+      "key_frames": {"1255": ["07:08", "07:13", "07:15", "07:17", "07:27"]},
+      "impact": {"max_queue_km": 3.5, "peak_extra_travel_min": 2.3},
+      "caveats": ["The mainline queue is small; the story is the scene and the PTZ moves", "Plates and people must be blurred before publication"]
+    },
+    {
+      "id": "E_0917_exit138_secondary",
+      "title": "Thu Sep 17: crash at Exit 138 (Loop 202) and a secondary crash in its queue, I-10 WB",
+      "shows": "Largest delay of the 8 days; a secondary crash at the queue tail, seen by camera 769 two minutes before the ERS record",
+      "direction": "WB",
+      "record": {"ers": "1008053 (secondary, 11:22)", "inrix": "6717baba-4a5b-48de-9ede-a65e95e70e28|2a36559e-6645-4151-a9b1-3ee3e99c3d73",
+                 "start": "2026-09-17T10:23", "end": "2026-09-17T12:46",
+                 "text": "Crash on I-10 Westbound at Exit 138 (Loop 202); secondary crashes 11:22 near 35th Ave and 12:28 near 43rd Ave",
+                 "lat": 33.463067, "lon": -112.179248},
+      "window": ["2026-09-17T10:10", "2026-09-17T13:15"],
+      "cameras": [
+        {"id": "769", "d_km": -5.0, "role": "queue tail and secondary-crash site", "queue": ["10:56", "11:55"], "ptz_moves_from": "11:20"},
+        {"id": "770", "d_km": -6.0, "role": "queue tail at 12:45"},
+        {"id": "771", "d_km": -7.5, "role": "upstream, free", "ptz_moves_from": "11:34"}
+      ],
+      "key_frames": {"769": ["10:45", "11:20", "11:27", "12:45"]},
+      "impact": {"max_queue_km": 5.8, "peak_extra_travel_min": 28.7},
+      "caveats": ["The primary crash is west of all cameras; only the tail is seen"]
+    }
+  ],
+  "optional": [
+    {
+      "id": "F_0916_thunderstorm",
+      "title": "Wed Sep 16 midday: crash inside a thunderstorm queue, I-10 EB near 3rd St",
+      "shows": "Weather: KPHX thunderstorms at 12:14, rain on camera 784 at 13:05; the crash at 12:45 falls inside congestion that began at 11:55",
+      "direction": "EB",
+      "record": {"ers": "1007258", "inrix": "49ec5f1d-641f-4837-bef1-f0a1e6dbae50", "start": "2026-09-16T12:45", "end": "2026-09-16T13:37",
+                 "text": "Crash on the right shoulder on I-10 Eastbound near N 3rd St (MP 146)", "lat": 33.462146, "lon": -112.066647},
+      "window": ["2026-09-16T11:45", "2026-09-16T14:15"],
+      "cameras": [
+        {"id": "787", "role": "downstream"}, {"id": "786", "role": "downstream"}, {"id": "785", "role": "downstream"},
+        {"id": "784", "role": "site"}, {"id": "782", "role": "queue"}, {"id": "780", "role": "queue"},
+        {"id": "778", "role": "queue"}, {"id": "776", "role": "queue"}, {"id": "774", "role": "queue"},
+        {"id": "772", "role": "queue"}, {"id": "771", "role": "queue"}, {"id": "770", "role": "queue"}
+      ],
+      "key_frames": {"784": ["12:45", "12:50", "13:05"]},
+      "use": "The rain test the ADOT review asked for, not a clean incident case"
+    }
+  ]
+}
