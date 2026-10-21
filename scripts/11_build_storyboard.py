@@ -4,12 +4,19 @@ Phase 1 uses INRIX speeds as the traffic state and the AZ511 frames as evidence;
 and camera-measured density come in phase 2. For each case it writes out/storyboard/<id>/index.html
 (data inline, opens from disk) and frames/<camera>/<HHMMSS>.jpg at 480 x 270.
 
-The queue at each minute is the run of congested XD segments (speed < SLOW x historic average)
-connected to the incident: upstream without limit inside the plotted range, downstream at most
-HEAD_KM, so a bottleneck just past the recorded location is still found. The live forecast at
-minute t uses only queue lengths up to t: a straight-line fit over the last FIT_MIN minutes,
-extended 5, 15 and 30 min, with a band that widens with the horizon. It is scored against the
-queue length observed later.
+Each segment's speed over the historic average is first smoothed with a trailing 3-minute median
+(past data only), then given a state with hysteresis so that values hovering at a threshold do not
+flip it every minute:
+  slowed:  enters below 0.60, leaves above 0.75   (queue plus slow traffic)
+  queued:  enters below 0.45, leaves above 0.55   (traffic under about half the usual speed)
+The slowdown and the queue at each minute are the runs of slowed and of queued segments connected to
+the incident: upstream without limit inside the plotted range, downstream at most HEAD_KM, so a
+bottleneck just past the recorded location is still found.
+
+The slowdown's tail is where drivers first meet slow traffic, so the operator line, Tier 1 and the
+forecast use the slowdown; the queue length is reported beside it. The live forecast at minute t uses
+only slowdown lengths up to t: a straight-line fit over the last FIT_MIN minutes, extended 5, 15 and
+30 min, with a band that widens with the horizon. It is scored against the length observed later.
 
 Usage: python scripts/11_build_storyboard.py [case id ...]
 """
@@ -27,8 +34,11 @@ from corridor import load_chains, locate  # noqa: E402
 from paths import CAMS, DATA, INRIX_INC, INRIX_SPEED, OUT, REPO  # noqa: E402
 from tarindex import FrameStore  # noqa: E402
 
-SLOW = 0.7
+SMOOTH_MIN = 3
+SLOWED = (0.60, 0.75)      # enter below, leave above
+QUEUED = (0.45, 0.55)
 HEAD_KM = 1.5
+MIN_AHEAD_KM = 0.1         # a camera closer than this to the tail is already at it
 SEED_KM = 0.5
 FIT_MIN = 10
 HORIZONS = (5, 15, 30)
@@ -57,14 +67,30 @@ def load_manifest():
     return m.sort_values(["camera_id", "t"])
 
 
-def queue_series(grid, seg, s_inc):
-    """Per minute: (head_s, tail_s) of the congested run connected to the incident, or NaN."""
-    slow = (grid < SLOW).to_numpy()
+def smooth(grid):
+    """Trailing median over SMOOTH_MIN minutes, so no minute uses later data."""
+    return grid.rolling(SMOOTH_MIN, min_periods=1).median()
+
+
+def hysteresis(grid, enter, leave):
+    """Per segment: on when the ratio drops below enter, off when it rises above leave; gaps keep the state."""
+    r = grid.to_numpy()
+    state = np.zeros_like(r, dtype=bool)
+    on = np.zeros(r.shape[1], dtype=bool)
+    for i, row in enumerate(r):
+        on = np.where(row < enter, True, np.where(row > leave, False, on))
+        state[i] = on
+    return state
+
+
+def run_series(state, seg, s_inc):
+    """Per minute: (head_s, tail_s) of the run of segments in state connected to the incident, or NaN."""
+    slow = state
     s0, s1 = seg.s0_km.to_numpy(), seg.s1_km.to_numpy()
     mid = (s0 + s1) / 2
     inc = int(np.clip(np.searchsorted(s1, s_inc), 0, len(seg) - 1))
     seeds = [inc] + [j for j in np.argsort(np.abs(mid - s_inc)) if j != inc and abs(mid[j] - s_inc) <= SEED_KM]
-    head, tail = np.full(len(grid), np.nan), np.full(len(grid), np.nan)
+    head, tail = np.full(len(slow), np.nan), np.full(len(slow), np.nan)
     for i, row in enumerate(slow):
         seed = next((j for j in seeds if row[j]), None)
         if seed is None:
@@ -104,20 +130,25 @@ def forecast(length, times):
     return out, score
 
 
-def message(f, tail_s, cams_up, direction):
+def message(f, tail_s, queue_km, cams_up):
     """One plain-English line for the operator at this minute."""
     if f is None:
-        return "No queue at the incident."
+        return "No slow traffic at the incident."
     mi = f["now_km"] / KM_PER_MI
     mph = f["rate_kmpm"] * 60 / KM_PER_MI
     trend = ("growing about {:.0f} mph".format(abs(mph)) if mph > 0.5
              else "shrinking about {:.0f} mph".format(abs(mph)) if mph < -0.5 else "steady")
-    text = f"Queue about {mi:.1f} mi long, {trend}."
-    ahead = [c for c in cams_up if c["s_km"] < tail_s]
+    q_mi = queue_km / KM_PER_MI
+    if q_mi >= 0.05:
+        text = f"Queue about {q_mi:.1f} mi, slow traffic {mi:.1f} mi in all, {trend}."
+    else:
+        text = f"No queue; slow traffic for {mi:.1f} mi past the scene, {trend}."
+    ahead = [c for c in cams_up if c["s_km"] <= tail_s - MIN_AHEAD_KM]
     if ahead and f["rate_kmpm"] > 0.02:
         c = max(ahead, key=lambda c: c["s_km"])
         eta = (tail_s - c["s_km"]) / f["rate_kmpm"]
-        text += f" At this rate the tail reaches {c['location']} in about {eta:.0f} min."
+        when = "within a minute" if eta < 1 else f"in about {eta:.0f} min"
+        text += f" At this rate slow traffic reaches camera {c['id']} ({c['location']}) {when}."
     return text
 
 
@@ -178,7 +209,7 @@ def nearby_records(case, chain, s_inc, t0, t1):
     return out
 
 
-def chapters(times, length, start):
+def chapters(times, length, queue_length, start):
     L = pd.Series(length, index=times).fillna(0.0)
     after = L[L.index >= start - pd.Timedelta(minutes=15)]
     on = after[after > 0]
@@ -187,13 +218,18 @@ def chapters(times, length, start):
     onset = on.index[0]
     peak = after.idxmax()
     rec = after[(after.index > peak) & (after <= after.max() / 2)]
-    out = [("Onset", onset), ("Peak queue", peak)]
+    out = [("Onset", onset), ("Peak", peak)]
+    Q = pd.Series(queue_length, index=times).fillna(0.0)
+    q_after = Q[Q.index >= onset]
+    if (q_after > 0).any():
+        out.append(("Queue gone", q_after[q_after > 0].index[-1] + pd.Timedelta(minutes=1)))
     if len(rec):
         out.append(("Recovery", rec.index[0]))
         zero = (after[after.index > peak] == 0).rolling(5).sum() == 5
         if zero.any():
             out.append(("Cleared", zero[zero].index[0] - pd.Timedelta(minutes=4)))
-    return [{"label": a, "t": f"{t:%Y-%m-%dT%H:%M}"} for a, t in out]
+    out = [(a, t) for a, t in out if t <= times[-1]]
+    return [{"label": a, "t": f"{t:%Y-%m-%dT%H:%M}"} for a, t in sorted(out, key=lambda x: x[1])]
 
 
 def build(case, chains, speed, cams_all, manifest, store):
@@ -219,25 +255,33 @@ def build(case, chains, speed, cams_all, manifest, store):
     times = pd.date_range(t0, t1, freq="min")
     sp = speed[speed.xd.isin(seg.xd) & speed.t_local.between(t0, t1)]
     grid = sp.pivot_table(index="t_local", columns="xd", values="ratio").reindex(index=times, columns=seg.xd)
-    head, tail = queue_series(grid, seg, s_inc)
+    smoothed = smooth(grid)
+    head, tail = run_series(hysteresis(smoothed, *SLOWED), seg, s_inc)
+    q_head, q_tail = run_series(hysteresis(smoothed, *QUEUED), seg, s_inc)
     length = np.where(np.isnan(tail), 0.0, head - tail)
+    q_length = np.where(np.isnan(q_tail), 0.0, q_head - q_tail)
     fc, score = forecast(length, times)
 
     up_cams = [c for c in cams if not c["dead"]]
     msgs, tier1 = [], None
     for k, t in enumerate(times):
-        msgs.append(message(fc[k], tail[k], up_cams, case["direction"]))
+        msgs.append(message(fc[k], tail[k], q_length[k], up_cams))
         if tier1 is None and t >= start - pd.Timedelta(minutes=15) and length[k] >= TIER1_KM:
             tier1 = t
+
+    def span(inside):
+        inside = inside & (times >= start - pd.Timedelta(minutes=5))
+        return [f"{times[inside][0]:%H:%M}", f"{times[inside][-1]:%H:%M}"] if inside.any() else None
 
     out_dir = OUT / "storyboard" / case["id"]
     for c in cams:
         x = seg[(seg.s0_km <= c["s_km"]) & (seg.s1_km > c["s_km"])].xd
-        ratio = grid[x.iloc[0]] if len(x) else pd.Series(np.nan, index=times)
+        ratio = smoothed[x.iloc[0]] if len(x) else pd.Series(np.nan, index=times)
         c["ratio"] = [None if pd.isna(v) else round(float(v), 2) for v in ratio]
-        inq = (~np.isnan(tail)) & (tail <= c["s_km"]) & (head >= c["s_km"])
-        inq_after = inq & (times >= start - pd.Timedelta(minutes=5))
-        c["queue"] = ([f"{times[inq_after][0]:%H:%M}", f"{times[inq_after][-1]:%H:%M}"] if inq_after.any() else None)
+        in_zone = (~np.isnan(tail)) & (tail <= c["s_km"]) & (head >= c["s_km"])
+        in_queue = (~np.isnan(q_tail)) & (q_tail <= c["s_km"]) & (q_head >= c["s_km"])
+        c["state"] = np.where(in_queue, 2, np.where(in_zone, 1, 0)).tolist()   # 2 queue, 1 slow traffic, 0 neither
+        c["queue"], c["slowed"] = span(in_queue), span(in_zone)
         fr = manifest[(manifest.camera_id == c["id"]) & manifest.t.between(t0, t1)]
         c["view"] = fr.view.iloc[0] if len(fr) else "no frames"
         c["frames"] = []
@@ -266,18 +310,22 @@ def build(case, chains, speed, cams_all, manifest, store):
         "grid": [[None if pd.isna(v) else round(float(v), 2) for v in row] for row in grid.to_numpy()],
         "head": [None if np.isnan(v) else round(float(v), 3) for v in head],
         "tail": [None if np.isnan(v) else round(float(v), 3) for v in tail],
+        "q_head": [None if np.isnan(v) else round(float(v), 3) for v in q_head],
+        "q_tail": [None if np.isnan(v) else round(float(v), 3) for v in q_tail],
         "forecast": fc, "messages": msgs, "forecast_score": score,
         "tier1": f"{tier1:%Y-%m-%dT%H:%M}" if tier1 is not None else None,
         "first_ptz_move": first_move,
-        "chapters": chapters(times, length, start),
+        "chapters": chapters(times, length, q_length, start),
         "cameras": sorted(cams, key=lambda c: -c["s_km"]),
         "records": records,
-        "summary": {"max_queue_km": round(float(np.nanmax(length)), 2) if np.nanmax(length) > 0 else 0.0},
+        "summary": {"max_slow_km": round(float(length.max()), 2), "max_queue_km": round(float(q_length.max()), 2)},
     }
     html = TEMPLATE.read_text().replace("/*__DATA__*/null", json.dumps(data, separators=(",", ":")))
     (out_dir / "index.html").write_text(html)
     n = sum(len(c["frames"]) for c in cams)
-    print(f"{case['id']}: {len(cams)} cameras, {n} frames, max queue {data['summary']['max_queue_km']} km, "
+    jumps = int(np.sum(np.abs(np.diff(np.nan_to_num(tail, nan=s_inc))) > 0.05))
+    print(f"{case['id']}: {len(cams)} cameras, {n} frames, slow {data['summary']['max_slow_km']} km, "
+          f"queue {data['summary']['max_queue_km']} km, tail moves {jumps}, "
           f"tier1 {data['tier1']}, forecast inside 5/15/30 min: "
           + ", ".join(f"{score[str(h)]['inside']}" for h in HORIZONS))
     return data

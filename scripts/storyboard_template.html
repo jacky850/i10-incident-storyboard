@@ -66,6 +66,7 @@
   .cam .cap .sub { color: var(--muted); display: flex; justify-content: space-between; gap: 6px; }
   .cam .cap .q { margin-top: 2px; }
   .cam.inq .cap .q { color: var(--queue); font-weight: 600; }
+  .cam.slowz .cap .q { color: var(--slow); font-weight: 600; }
   .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px; }
   canvas { width: 100%; display: block; cursor: crosshair; }
   .events { list-style: none; margin: 0; padding: 0; max-height: 420px; overflow: auto; font-size: 13px; }
@@ -113,8 +114,8 @@
     <section>
       <h2>Cameras, downstream at top left to upstream</h2>
       <div class="legend">
-        <span><i style="background:var(--queue)"></i>queued (speed &lt; 50% of usual)</span>
-        <span><i style="background:var(--slow)"></i>slow (50–70%)</span>
+        <span><i style="background:var(--queue)"></i>queue (under about half the usual speed)</span>
+        <span><i style="background:var(--slow)"></i>slow traffic</span>
         <span><i style="background:var(--free)"></i>free flow</span>
         <span><i style="background:#f0e442"></i>camera just moved by an operator</span>
       </div>
@@ -126,7 +127,7 @@
         <canvas id="ts" height="430" aria-label="Time and distance diagram of speeds, with the queue head and tail"></canvas>
         <div class="legend" style="margin-top:6px">
           <span>Up the page is the direction of travel. Colour: speed over the usual speed for that hour and weekday.</span>
-          <span>— tail of the queue &nbsp; ┄ head &nbsp; ▲ forecast range of the tail</span>
+          <span>━ tail of the queue &nbsp; ╌ tail of slow traffic &nbsp; ┈ head &nbsp; shaded: forecast range of the slow-traffic tail</span>
         </div>
       </div>
       <h2 style="margin-top:14px">Timeline</h2>
@@ -160,7 +161,11 @@ function roleLabel(c) {
 }
 function hm(d) { return d.toTimeString().slice(0, 5); }
 function hms(d) { return d.toTimeString().slice(0, 8); }
-function colour(r) { return r == null ? css("--none") : r < 0.5 ? css("--queue") : r < 0.7 ? css("--slow") : css("--free"); }
+function colour(state, r) {
+  if (state === 2) return css("--queue");
+  if (state === 1) return css("--slow");
+  return r == null ? css("--none") : css("--free");
+}
 function rampColour(r) {
   if (r == null) return "rgba(128,128,128,.18)";
   const stops = [[0.2, [213, 94, 0]], [0.5, [230, 159, 0]], [0.75, [238, 232, 213]], [1.05, [0, 114, 178]]];
@@ -218,8 +223,8 @@ function renderCams() {
   const t = new Date(T[k].getTime() + 59000);
   D.cameras.forEach((c, i) => {
     const el = $(`#cam${i}`);
-    const r = c.ratio[k];
-    el.style.borderColor = c.dead ? css("--none") : colour(r);
+    const r = c.ratio[k], st = c.state[k];
+    el.style.borderColor = c.dead ? css("--none") : colour(st, r);
     const f = frameAt(c, t);
     const img = el.querySelector("img");
     const ft = el.querySelector(".ft");
@@ -227,11 +232,12 @@ function renderCams() {
       if (f && t - f[0] < 4 * 60000) { if (!img.src.endsWith(f[1])) img.src = f[1]; img.style.opacity = 1; ft.textContent = `frame ${hms(f[0])}`; }
       else { img.style.opacity = .25; ft.textContent = "no recent frame"; }
     }
-    const inq = D.tail[k] != null && D.tail[k] <= c.s_km && D.head[k] >= c.s_km;
-    el.classList.toggle("inq", inq && !c.dead);
-    el.querySelector(".q").textContent = c.dead ? "" :
-      (inq ? "inside the queue now" : r == null ? "no speed data" : r < 0.7 ? "slow, not this queue" : "free flow") +
-      (c.queue ? ` · queue here ${c.queue[0]}–${c.queue[1]}` : "");
+    el.classList.toggle("inq", st === 2 && !c.dead);
+    el.classList.toggle("slowz", st === 1 && !c.dead);
+    const now = st === 2 ? "in the queue now" : st === 1 ? "in slow traffic now" :
+      r == null ? "no speed data" : r < 0.6 ? "slow, not from this incident" : "free flow";
+    const spans = [c.queue && `queue ${c.queue[0]}–${c.queue[1]}`, c.slowed && `slow ${c.slowed[0]}–${c.slowed[1]}`].filter(Boolean);
+    el.querySelector(".q").textContent = c.dead ? "" : now + (spans.length ? ` · ${spans.join(", ")}` : "");
     const moved = c.ptz_moves.some((m) => { const d = t - new Date(m); return d >= 0 && d < 3 * 60000; });
     el.querySelector(".moved").style.display = moved ? "block" : "none";
   });
@@ -248,8 +254,8 @@ function renderOps() {
   if (D.tier1) {
     const fired = T[k] >= new Date(D.tier1);
     tier.classList.toggle("fired", fired);
-    tier.textContent = fired ? `Tier 1 proposed since ${D.tier1.slice(11)}: AZ511 and sign warning (queue ≥ 0.25 mi)` :
-      "Tier 1 not reached (queue < 0.25 mi)";
+    tier.textContent = fired ? `Tier 1 proposed since ${D.tier1.slice(11)}: AZ511 and sign warning (slow traffic ≥ 0.25 mi)` :
+      "Tier 1 not reached (slow traffic < 0.25 mi)";
   } else tier.textContent = "Tier 1 never reached in this window";
 }
 
@@ -283,13 +289,13 @@ function renderTS() {
     ctx.beginPath(); ctx.moveTo(M.l, y); ctx.lineTo(w - M.r, y); ctx.stroke(); ctx.setLineDash([]);
     ctx.fillStyle = css("--ink"); ctx.fillText(`${c.id} ${c.dead ? "(no feed)" : ""}`, w - M.r + 4, y);
   });
-  const line = (arr, dash) => {
-    ctx.strokeStyle = css("--ink"); ctx.lineWidth = 2; ctx.setLineDash(dash); ctx.beginPath();
+  const line = (arr, dash, width) => {
+    ctx.strokeStyle = css("--ink"); ctx.lineWidth = width; ctx.setLineDash(dash); ctx.beginPath();
     let on = false;
     arr.forEach((v, i) => { if (v == null) { on = false; return; } const p = [xi(i), g.y(v)]; on ? ctx.lineTo(...p) : ctx.moveTo(...p); on = true; });
     ctx.stroke(); ctx.setLineDash([]); ctx.lineWidth = 1;
   };
-  line(D.tail, []); line(D.head, [5, 4]);
+  line(D.tail, [6, 4], 1.5); line(D.head, [2, 3], 1.5); line(D.q_tail, [], 3);
   const f = D.forecast[k];
   if (f && D.head[k] != null) {
     ctx.save();
@@ -333,12 +339,15 @@ ts.addEventListener("click", (e) => {
 function events() {
   const list = [];
   D.records.forEach((r) => list.push({ t: r.t, k: r.kind, text: r.text + (r.d_km != null && Math.abs(r.d_km) > 0.05 ? ` (${dist(r.d_km)})` : "") }));
+  const day = D.times[0].slice(0, 11);
   D.cameras.forEach((c) => {
-    if (c.queue) list.push({ t: `${D.times[0].slice(0, 11)}${c.queue[0]}`, k: "Queue", text: `Queue reaches camera ${c.id} ${c.location} (${dist(c.d_km)})` });
+    if (c.slowed && (!c.queue || c.slowed[0] < c.queue[0]))
+      list.push({ t: `${day}${c.slowed[0]}`, k: "Slow", text: `Slow traffic reaches camera ${c.id} ${c.location} (${dist(c.d_km)})` });
+    if (c.queue) list.push({ t: `${day}${c.queue[0]}`, k: "Queue", text: `Queue reaches camera ${c.id} ${c.location} (${dist(c.d_km)})` });
     const near = c.ptz_moves.filter((m) => m >= D.times[0]);
     if (near.length) list.push({ t: near[0].slice(0, 16), k: "Camera", text: `Operator moves camera ${c.id} ${c.location}${near.length > 1 ? ` (${near.length} moves in the window)` : ""}` });
   });
-  if (D.tier1) list.push({ t: D.tier1, k: "Tier 1", text: "Queue reaches 0.25 mi: AZ511 and sign warning proposed" });
+  if (D.tier1) list.push({ t: D.tier1, k: "Tier 1", text: "Slow traffic reaches 0.25 mi: AZ511 and sign warning proposed" });
   D.chapters.forEach((c) => list.push({ t: c.t, k: "Queue", text: c.label }));
   list.sort((a, b) => a.t.localeCompare(b.t));
   const ul = $("#events");
@@ -357,13 +366,14 @@ function renderEvents() {
 
 function footer() {
   const s = D.forecast_score;
-  $("#score").innerHTML = `<b>Forecast check</b> (queue length forecast from past speeds only, checked against the length seen later):
+  $("#score").innerHTML = `<b>Forecast check</b> (length of slow traffic forecast from past speeds only, checked against the length seen later):
     5 min ${pct(s["5"])}, 15 min ${pct(s["15"])}, 30 min ${pct(s["30"])} of forecasts held the observed length.
-    Largest queue in the window: ${(D.summary.max_queue_km / 1.609).toFixed(1)} mi (${D.summary.max_queue_km} km).`;
+    Longest in the window: queue ${(D.summary.max_queue_km / 1.609).toFixed(1)} mi (${D.summary.max_queue_km} km),
+    slow traffic ${(D.summary.max_slow_km / 1.609).toFixed(1)} mi (${D.summary.max_slow_km} km).`;
   $("#truth").innerHTML = `<tr><th>Layer</th><th>Source</th><th>Status in phase 1</th></tr>
     <tr><td>Camera frames</td><td>AZ511 stills archived about once a minute</td><td>Real; shown as evidence, not yet measured</td></tr>
     <tr><td>Traffic state</td><td>INRIX 1-minute speeds, over the INRIX usual speed for the hour and weekday</td><td>Real; the Track 1 counterfactual replaces the usual speed later</td></tr>
-    <tr><td>Queue head and tail</td><td>Congested road segments connected to the incident</td><td>Derived; segment resolution, INRIX latency of a few minutes</td></tr>
+    <tr><td>Queue and slow traffic</td><td>Road segments connected to the incident whose speed, as a 3-minute trailing median, falls below 45% (queue) or 60% (slow traffic) of usual, and that stay in that state until it rises above 55% or 75%</td><td>Derived; whole-segment resolution (0.3–1.1 km), INRIX latency of a few minutes, about 1 minute added by the smoothing</td></tr>
     <tr><td>Forecast</td><td>Straight-line trend of the last 10 minutes</td><td>Simple stand-in; phase 2 uses camera evidence and wave physics</td></tr>
     <tr><td>Camera moves</td><td>Change between consecutive frames</td><td>Detected automatically; operator actions inferred, not logged</td></tr>
     <tr><td>Records</td><td>AZ511 events (ERS) every 5 minutes, INRIX incidents, KPHX weather</td><td>Real</td></tr>`;
