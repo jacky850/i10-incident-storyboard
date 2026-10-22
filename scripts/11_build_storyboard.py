@@ -25,14 +25,25 @@ import json
 import sys
 from pathlib import Path
 
+import re
+
 import numpy as np
 import pandas as pd
 from PIL import Image
 
 sys.path.insert(0, str(Path(__file__).parent))
+import typical_days  # noqa: E402
 from corridor import load_chains, locate  # noqa: E402
 from paths import CAMS, DATA, INRIX_INC, INRIX_SPEED, OUT, REPO  # noqa: E402
 from tarindex import FrameStore  # noqa: E402
+
+# What a record's wording says is closed; checked in this order, shoulder-only wording matches none
+CLOSURE_KINDS = [
+    ("ramp", "Exit or entry ramp closed", re.compile(r"ramp (closed|blocked)|blocking the (exit|on|entry) ?ramp|ramp is closed", re.I)),
+    ("lanes", "Lanes blocked", re.compile(r"multiple lanes|lanes? (blocked|closed)|blocking (the )?(hov |center |left |right |\d+ )?lanes?|crashMultilanes", re.I)),
+    ("intersection", "Intersection at the ramp end blocked", re.compile(r"blocking the intersection", re.I)),
+    ("restrict", "Restrictions (INRIX, lanes not named)", re.compile(r"^restrictions", re.I)),
+]
 
 SMOOTH_MIN = 3
 SLOWED = (0.60, 0.75)      # enter below, leave above
@@ -260,6 +271,81 @@ def chapters(times, length, queue_length, start):
     return [{"label": a, "t": f"{t:%Y-%m-%dT%H:%M}"} for a, t in sorted(out, key=lambda x: x[1])]
 
 
+def closure_phases(case, t0, t1):
+    """Periods in which the case's own records say lanes or a ramp are closed, from each wording's time on."""
+    rec = case["record"]
+    spans = []
+    ers = pd.read_csv(DATA / "ers_events.csv", parse_dates=["reported", "gone_by", "last_seen"]).set_index("ers_id")
+    for ers_id in re.findall(r"\d{6,}", str(rec.get("ers") or "")):
+        ers_id = int(ers_id)
+        if ers_id not in ers.index:
+            continue
+        row = ers.loc[ers_id]
+        end = row.gone_by if pd.notna(row.gone_by) else row.last_seen
+        hist = ers_history(ers_id, t0, t1) or [(row.reported, row.description)]
+        hist[0] = (min(hist[0][0], row.reported), hist[0][1])
+        for i, (t, text) in enumerate(hist):
+            spans.append((t, hist[i + 1][0] if i + 1 < len(hist) else end, text, f"ERS {ers_id}"))
+    inc = pd.read_csv(INRIX_INC)
+    for inrix_id in str(rec.get("inrix") or "").split("|"):
+        row = inc[inc["Incident Id"] == inrix_id]
+        if len(row):
+            r = row.iloc[0]
+            spans.append((pd.Timestamp(r["Earliest Start Time(local)"][:19]), pd.Timestamp(r["Latest End Time(local)"][:19]),
+                          r["Description"], "INRIX"))
+    phases = []
+    for a, b, text, source in sorted(spans):
+        kind = next(((k, label) for k, label, rx in CLOSURE_KINDS if rx.search(text)), None)
+        if kind is None or b < t0 or a > t1:
+            continue
+        a, b = max(a, t0), min(b, t1)
+        last = phases[-1] if phases else None
+        if last and last["kind"] == kind[0] and pd.Timestamp(last["t1"]) >= a - pd.Timedelta(minutes=1):
+            last["t1"] = f"{max(pd.Timestamp(last['t1']), b):%Y-%m-%dT%H:%M}"
+            continue
+        phases.append({"kind": kind[0], "label": kind[1], "source": source,
+                       "t0": f"{a:%Y-%m-%dT%H:%M}", "t1": f"{b:%Y-%m-%dT%H:%M}"})
+    return phases
+
+
+def travel_times(case_id, seg, times, event_day):
+    """Minutes to drive the plotted road at each minute: the incident day and the other same-weekday days."""
+    df = typical_days.load(case_id)
+    df = df[df.xd.isin(seg.xd)]
+    lens = seg.set_index("xd").len_km
+    tods = [f"{t:%H:%M}" for t in times]
+    v = df.pivot_table(index=["date", "tod"], columns="xd", values="v").reindex(columns=seg.xd)
+    ref = df.groupby("xd").ref.median().reindex(seg.xd)
+    out = {}
+    for day, g in v.groupby(level=0):
+        g = g.droplevel(0).reindex(tods).ffill().bfill().fillna(ref)
+        out[day] = (lens / g * 60).sum(axis=1).to_numpy()
+    event = out.pop(f"{event_day:%Y-%m-%d}")
+    others = np.vstack(list(out.values()))
+    r = lambda a: [round(float(x), 1) for x in a]      # noqa: E731
+    return {
+        "event": r(event), "median": r(np.median(others, axis=0)),
+        "p25": r(np.percentile(others, 25, axis=0)), "p75": r(np.percentile(others, 75, axis=0)),
+        "free_flow": round(float((lens / ref * 60).sum()), 1),
+        "weekday": f"{event_day:%A}", "n_days": len(out), "km": round(float(lens.sum()), 1),
+    }
+
+
+def scope(case, chains, cams_all):
+    """XD segments and times of day a case may use, before its window and road are trimmed."""
+    chain = chains[case["direction"][0]]
+    _, s_inc, _ = locate(chain, case["record"]["lat"], case["record"]["lon"])
+    s = []
+    for c in case["cameras"]:
+        row = cams_all[cams_all.ID == c["id"]].iloc[0]
+        s.append(locate(chain, row.Latitude, row.Longitude)[1])
+    lo, hi = min(s + [s_inc]) - UP_SEARCH_KM, max(s + [s_inc]) + 1.0
+    t0, t1 = (pd.Timestamp(x) for x in case["window"])
+    t_cap = max(t1, pd.Timestamp(case["record"]["start"]) + pd.Timedelta(hours=MAX_AFTER_H))
+    return {"date": t0.normalize(), "xds": set(chain[(chain.s1_km > lo) & (chain.s0_km < hi)].xd),
+            "tod": (f"{t0:%H:%M}", f"{t_cap:%H:%M}" if t_cap.date() == t0.date() else "23:59")}
+
+
 def recovery_time(length, times, t_end):
     """If slow traffic is still there at t_end, the first later minute from which it stays gone for
     CLEAR_MIN minutes (or the last minute); otherwise t_end. A slowdown that starts after t_end
@@ -355,6 +441,8 @@ def build(case, chains, speed, cams_all, manifest, store):
         c["ptz_moves"] = ptz_moves(store, fr) if len(fr) > 1 else []
 
     records = nearby_records(case, chain, s_inc, t0, t1)
+    closures = closure_phases(case, t0, t1)
+    tt = travel_times(case["id"], seg, times, t0.normalize())
     first_move = min((m for c in cams for m in c["ptz_moves"] if m >= f"{start - pd.Timedelta(minutes=20):%Y-%m-%dT%H:%M}"),
                      default=None)
     data = {
@@ -376,12 +464,18 @@ def build(case, chains, speed, cams_all, manifest, store):
         "chapters": chapters(times, length, q_length, start),
         "cameras": sorted(cams, key=lambda c: -c["s_km"]),
         "records": records,
+        "closures": closures,
+        "travel_time": tt,
         "summary": {"max_slow_km": round(float(length.max()), 2), "max_queue_km": round(float(q_length.max()), 2)},
     }
     html = TEMPLATE.read_text().replace("/*__DATA__*/null", json.dumps(data, separators=(",", ":")))
     (out_dir / "index.html").write_text(html)
     n = sum(len(c["frames"]) for c in cams)
     jumps = int(np.sum(np.abs(np.diff(np.nan_to_num(tail, nan=s_inc))) > 0.05))
+    extra = np.array(tt["event"]) - np.array(tt["median"])
+    print(f"{case['id']}: closures {[(p['kind'], p['t0'][11:], p['t1'][11:]) for p in closures]}, "
+          f"travel time over {tt['km']} km: usual {tt['weekday']} median {min(tt['median'])}-{max(tt['median'])} min, "
+          f"largest extra {extra.max():.1f} min at {times[int(extra.argmax())]:%H:%M}")
     print(f"{case['id']}: {len(cams)} cameras, {n} frames, slow {data['summary']['max_slow_km']} km, "
           f"queue {data['summary']['max_queue_km']} km, tail moves {jumps}, "
           f"tier1 {data['tier1']}, forecast inside 5/15/30 min: "
@@ -404,7 +498,10 @@ def main(ids):
     cams_all = pd.read_csv(CAMS, dtype={"ID": str})
     manifest = load_manifest()
     store = FrameStore()
-    built = [build(c, chains, speed, cams_all, manifest, store) for c in cases() if not ids or c["id"] in ids]
+    todo = [c for c in cases() if not ids or c["id"] in ids]
+    typical_days.build({c["id"]: scope(c, chains, cams_all) for c in todo
+                        if not typical_days.cache_path(c["id"]).exists()})
+    built = [build(c, chains, speed, cams_all, manifest, store) for c in todo]
     if not ids:
         index_page(built)
 

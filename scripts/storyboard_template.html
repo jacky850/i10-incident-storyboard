@@ -69,6 +69,10 @@
   .cam.slowz .cap .q { color: var(--slow); font-weight: 600; }
   .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px; }
   canvas { width: 100%; display: block; cursor: crosshair; }
+  .ttnow { font-size: 13px; margin: 0 0 6px; font-variant-numeric: tabular-nums; }
+  .ttnow b { font-size: 15px; }
+  .ttnow .up { color: var(--queue); font-weight: 650; }
+  .swatch { display: inline-block; width: 18px; height: 0; border-top: 3px solid; vertical-align: middle; margin-right: 4px; }
   .events { list-style: none; margin: 0; padding: 0; max-height: 420px; overflow: auto; font-size: 13px; }
   .events li { display: grid; grid-template-columns: 50px 70px 1fr; gap: 8px; padding: 5px 4px; border-bottom: 1px solid var(--line); cursor: pointer; }
   .events li:hover { background: var(--accent-soft); }
@@ -139,7 +143,14 @@
         <div class="legend" style="margin-top:6px">
           <span>Up the page is the direction of travel. Colour: speed over the usual speed for that hour and weekday.</span>
           <span>━ tail of the queue &nbsp; ╌ tail of slow traffic &nbsp; ┈ head &nbsp; shaded: forecast range of the slow-traffic tail</span>
+          <span id="closureLegend"></span>
         </div>
+      </div>
+      <h2 style="margin-top:14px">Travel time against a usual day</h2>
+      <div class="panel">
+        <div class="ttnow" id="ttnow"></div>
+        <canvas id="ttc" height="190" aria-label="Travel time over the plotted road on this day and on usual days of the same weekday"></canvas>
+        <div class="legend" style="margin-top:6px" id="ttlegend"></div>
       </div>
       <h2 style="margin-top:14px">Timeline</h2>
       <div class="panel"><ul class="events" id="events"></ul></div>
@@ -353,6 +364,23 @@ function renderOps() {
 const ts = $("#ts");
 const M = { l: 46, r: 92, t: 22, b: 30 };
 const TS_H = 430;
+// Closure periods from the records' wording; each kind gets a row of bars above the diagram
+const CLOSURE = {
+  lanes: { colour: "#3b3b38", text: "#fff", short: "Lanes blocked" },
+  ramp: { colour: "#cc79a7", text: "#000", short: "Ramp closed" },
+  intersection: { colour: "#56b4e9", text: "#000", short: "Ramp-end intersection blocked" },
+  restrict: { colour: "#a8a8a3", text: "#000", short: "Restrictions" },
+};
+const KINDS = [...new Set(D.closures.map((p) => p.kind))];
+M.t = 22 + 16 * KINDS.length;
+function tIndex(t) { return Math.max(0, Math.min(T.length - 1, Math.round((new Date(t) - T[0]) / 60000))); }
+function drawClosureLines(ctx, xi, top, bottom) {
+  D.closures.forEach((p) => {
+    ctx.strokeStyle = CLOSURE[p.kind].colour; ctx.lineWidth = 1.5; ctx.setLineDash([4, 3]);
+    [p.t0, p.t1].forEach((t) => { const x = xi(tIndex(t)); ctx.beginPath(); ctx.moveTo(x, top); ctx.lineTo(x, bottom); ctx.stroke(); });
+    ctx.setLineDash([]); ctx.lineWidth = 1;
+  });
+}
 function tsGeom() {
   const w = ts.clientWidth, h = TS_H;
   const s0 = D.s_range[0], s1 = D.s_range[1];
@@ -379,6 +407,19 @@ function renderTS() {
     ctx.strokeStyle = c.dead ? "rgba(120,120,120,.8)" : "rgba(20,20,20,.55)"; ctx.setLineDash(c.dead ? [3, 3] : []);
     ctx.beginPath(); ctx.moveTo(M.l, y); ctx.lineTo(w - M.r, y); ctx.stroke(); ctx.setLineDash([]);
     ctx.fillStyle = css("--ink"); ctx.fillText(`${c.id} ${c.dead ? "(no feed)" : ""}`, w - M.r + 4, y);
+  });
+  drawClosureLines(ctx, xi, M.t, TS_H - M.b);
+  ctx.font = "11px system-ui"; ctx.textBaseline = "middle"; ctx.textAlign = "left";
+  KINDS.forEach((kind, row) => {
+    const y = 18 + 16 * row, cfg = CLOSURE[kind];
+    D.closures.filter((p) => p.kind === kind).forEach((p) => {
+      const x0 = xi(tIndex(p.t0)), x1 = Math.max(x0 + 3, xi(tIndex(p.t1)));
+      ctx.fillStyle = cfg.colour; ctx.fillRect(x0, y, x1 - x0, 12);
+      const label = `${cfg.short} ${p.t0.slice(11)}–${p.t1.slice(11)}`;
+      const fits = ctx.measureText(label).width + 8 < x1 - x0;
+      ctx.fillStyle = fits ? cfg.text : css("--ink");
+      ctx.fillText(label, fits ? x0 + 4 : x1 + 4, y + 6.5);
+    });
   });
   const line = (arr, dash, width) => {
     ctx.strokeStyle = css("--ink"); ctx.lineWidth = width; ctx.setLineDash(dash); ctx.beginPath();
@@ -421,11 +462,70 @@ function renderTS() {
     ctx.fillRect(xi(i) - 1, 4, 3, 10);
   });
 }
-ts.addEventListener("click", (e) => {
-  const rect = ts.getBoundingClientRect(); const w = rect.width;
+function seekFromClick(canvas, e) {
+  const rect = canvas.getBoundingClientRect(); const w = rect.width;
   const i = Math.round(((e.clientX - rect.left - M.l) / (w - M.l - M.r)) * (T.length - 1));
   seek(Math.max(0, Math.min(T.length - 1, i)));
-});
+}
+ts.addEventListener("click", (e) => seekFromClick(ts, e));
+
+// Travel time over the plotted road: this day against the other days of the same weekday
+const ttc = $("#ttc"), TT_H = 190, TM = { t: 12, b: 26 };
+ttc.addEventListener("click", (e) => seekFromClick(ttc, e));
+function renderTT() {
+  const tt = D.travel_time;
+  const dpr = window.devicePixelRatio || 1;
+  ttc.width = ttc.clientWidth * dpr; ttc.height = TT_H * dpr; ttc.style.height = `${TT_H}px`;
+  const ctx = ttc.getContext("2d"); ctx.scale(dpr, dpr);
+  const w = ttc.clientWidth;
+  const xi = (i) => M.l + (i / (T.length - 1)) * (w - M.l - M.r);
+  const ymax = Math.max(...tt.event, ...tt.p75, tt.free_flow) * 1.08;
+  const y = (v) => TM.t + (1 - v / ymax) * (TT_H - TM.t - TM.b);
+  ctx.fillStyle = css("--panel"); ctx.fillRect(0, 0, w, TT_H);
+  D.closures.forEach((p) => {
+    ctx.fillStyle = CLOSURE[p.kind].colour; ctx.globalAlpha = 0.16;
+    ctx.fillRect(xi(tIndex(p.t0)), TM.t, xi(tIndex(p.t1)) - xi(tIndex(p.t0)), TT_H - TM.t - TM.b);
+    ctx.globalAlpha = 1;
+  });
+  const step = [1, 2, 5, 10, 15, 20, 30].find((s) => ymax / s <= 5) || 60;
+  ctx.font = "11px system-ui"; ctx.textAlign = "right"; ctx.textBaseline = "middle";
+  for (let v = 0; v <= ymax; v += step) {
+    ctx.strokeStyle = css("--line"); ctx.beginPath(); ctx.moveTo(M.l, y(v)); ctx.lineTo(w - M.r, y(v)); ctx.stroke();
+    ctx.fillStyle = css("--muted"); ctx.fillText(`${v} min`, M.l - 6, y(v));
+  }
+  ctx.fillStyle = "rgba(0,114,178,.2)"; ctx.beginPath();
+  tt.p75.forEach((v, i) => (i ? ctx.lineTo(xi(i), y(v)) : ctx.moveTo(xi(i), y(v))));
+  for (let i = tt.p25.length - 1; i >= 0; i--) ctx.lineTo(xi(i), y(tt.p25[i]));
+  ctx.closePath(); ctx.fill();
+  const series = (arr, colour, width, dash) => {
+    ctx.strokeStyle = colour; ctx.lineWidth = width; ctx.setLineDash(dash); ctx.beginPath();
+    arr.forEach((v, i) => (i ? ctx.lineTo(xi(i), y(v)) : ctx.moveTo(xi(i), y(v))));
+    ctx.stroke(); ctx.setLineDash([]); ctx.lineWidth = 1;
+  };
+  series(T.map(() => tt.free_flow), css("--muted"), 1, [2, 3]);
+  series(tt.median, "#0072b2", 2, [6, 3]);
+  series(tt.event, "#d55e00", 2.5, []);
+  ctx.strokeStyle = css("--adot"); ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(xi(k), TM.t); ctx.lineTo(xi(k), TT_H - TM.b); ctx.stroke(); ctx.lineWidth = 1;
+  ctx.fillStyle = css("--muted"); ctx.textBaseline = "top"; ctx.textAlign = "center";
+  for (let i = 0; i < T.length; i += Math.max(1, Math.round(T.length / 8))) ctx.fillText(hm(T[i]), xi(i), TT_H - TM.b + 6);
+  const extra = tt.event[k] - tt.median[k];
+  $("#ttnow").innerHTML = `At ${hm(T[k])}: <b>${tt.event[k].toFixed(1)} min</b> to drive these ${tt.km} km this ${tt.weekday} ·
+    a usual ${tt.weekday} ${tt.median[k].toFixed(1)} min (middle half ${tt.p25[k].toFixed(1)}–${tt.p75[k].toFixed(1)}) ·
+    free flow ${tt.free_flow.toFixed(1)} min` + (extra >= 0.5 ? ` · <span class="up">+${extra.toFixed(1)} min</span>` : "");
+}
+
+function closureLegend() {
+  $("#closureLegend").innerHTML = D.closures.length ? "Records: " + D.closures.map((p) =>
+    `<span><i style="background:${CLOSURE[p.kind].colour}"></i>${p.label} ${p.t0.slice(11)}–${p.t1.slice(11)} (${p.source})</span>`).join(" ")
+    : "Records name no lane or ramp closure in this window.";
+  const tt = D.travel_time;
+  $("#ttlegend").innerHTML = `<span><span class="swatch" style="border-color:#d55e00"></span>this ${tt.weekday}</span>
+    <span><span class="swatch" style="border-color:#0072b2;border-top-style:dashed"></span>usual ${tt.weekday}: median of ${tt.n_days} other ${tt.weekday}s, Aug–Sep 2026</span>
+    <span><i style="background:rgba(0,114,178,.3)"></i>middle half of those days</span>
+    <span><span class="swatch" style="border-color:var(--muted);border-top-style:dotted"></span>free flow</span>
+    <span>Shading: closure periods from the records.</span>`;
+}
 
 function events() {
   const list = [];
@@ -466,6 +566,8 @@ function footer() {
     <tr><td>Traffic state</td><td>INRIX 1-minute speeds, over the INRIX usual speed for the hour and weekday</td><td>Real; the Track 1 counterfactual replaces the usual speed later</td></tr>
     <tr><td>Queue and slow traffic</td><td>Road segments connected to the incident whose speed, as a 3-minute trailing median, falls below 45% (queue) or 60% (slow traffic) of usual, and that stay in that state until it rises above 55% or 75%</td><td>Derived; whole-segment resolution (0.3–1.1 km), INRIX latency of a few minutes, about 1 minute added by the smoothing</td></tr>
     <tr><td>Forecast</td><td>Straight-line trend of the last 10 minutes</td><td>Simple stand-in; phase 2 uses camera evidence and wave physics</td></tr>
+    <tr><td>Usual day</td><td>Travel time over the plotted road on the other days of the same weekday in Aug–Sep 2026 (Labor Day left out), from INRIX 1-minute speeds</td><td>Real; those days may hold incidents of their own, so the median is used</td></tr>
+    <tr><td>Closure periods</td><td>Each wording of the case's ERS record (AZ511, every 5 minutes) and its INRIX record, read for lanes, ramps and intersections</td><td>Real record times; the record can lag what happened on the road</td></tr>
     <tr><td>Camera moves</td><td>Change between consecutive frames</td><td>Detected automatically; operator actions inferred, not logged</td></tr>
     <tr><td>Records</td><td>AZ511 events (ERS) every 5 minutes, INRIX incidents, KPHX weather</td><td>Real</td></tr>`;
   $("#caveats").innerHTML = D.caveats.length ? `<b>Limits of this case:</b> ${D.caveats.join("; ")}.` : "";
@@ -475,10 +577,10 @@ function pct(x) { return x && x.inside != null ? `${Math.round(x.inside * 100)}%
 function seek(i) {
   k = i; $("#slider").value = i;
   $("#clock").innerHTML = `${hm(T[k])}<small>${T[k].toDateString()}</small>`;
-  renderCams(); renderOps(); renderTS(); renderEvents();
+  renderCams(); renderOps(); renderTS(); renderTT(); renderEvents();
 }
 
-header(); cams(); events(); footer();
+header(); cams(); events(); footer(); closureLegend();
 $("#slider").max = T.length - 1;
 $("#slider").oninput = (e) => seek(+e.target.value);
 document.querySelectorAll("[data-step]").forEach((b) => b.onclick = () => seek(Math.max(0, Math.min(T.length - 1, k + +b.dataset.step))));
@@ -493,7 +595,7 @@ document.addEventListener("keydown", (e) => {
   if (e.key === "ArrowLeft") seek(Math.max(0, k - 1));
   if (e.key === " ") { e.preventDefault(); $("#play").click(); }
 });
-window.addEventListener("resize", renderTS);
+window.addEventListener("resize", () => { renderTS(); renderTT(); });
 seek(Math.max(0, D.times.indexOf(D.start) - 5));
 </script>
 </body>
