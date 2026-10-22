@@ -142,7 +142,7 @@
         <canvas id="ts" height="430" aria-label="Time and distance diagram of speeds, with the queue head and tail"></canvas>
         <div class="legend" style="margin-top:6px">
           <span>Up the page is the direction of travel. Colour: speed over the usual speed for that hour and weekday.</span>
-          <span>━ tail of the queue &nbsp; ╌ tail of slow traffic &nbsp; ┈ head &nbsp; shaded: forecast range of the slow-traffic tail</span>
+          <span>━ tail of the queue &nbsp; ╌ tail of slow traffic &nbsp; ┈ head &nbsp; shaded: forecast range of the slow-traffic tail &nbsp; ✕ incident record, smaller ✕ secondary crash; queues from secondary crashes count as part of this incident</span>
           <span id="closureLegend"></span>
         </div>
       </div>
@@ -447,6 +447,13 @@ function renderTS() {
     ctx.strokeStyle = "#000"; ctx.lineWidth = 3;
     ctx.beginPath(); ctx.moveTo(x - 6, y - 6); ctx.lineTo(x + 6, y + 6); ctx.moveTo(x + 6, y - 6); ctx.lineTo(x - 6, y + 6); ctx.stroke(); ctx.lineWidth = 1;
   }
+  (D.secondary || []).forEach((sx, n) => {
+    const x = xi(tIndex(sx.t)), y = g.y(sx.s);
+    ctx.strokeStyle = "#000"; ctx.lineWidth = 2.5;
+    ctx.beginPath(); ctx.moveTo(x - 4, y - 4); ctx.lineTo(x + 4, y + 4); ctx.moveTo(x + 4, y - 4); ctx.lineTo(x - 4, y + 4); ctx.stroke(); ctx.lineWidth = 1;
+    ctx.font = "bold 11px system-ui"; ctx.textAlign = "left"; ctx.textBaseline = "middle";
+    ctx.fillStyle = "#000"; ctx.fillText(`2nd crash ${sx.t.slice(11)}`, x + 7, y);
+  });
   ctx.strokeStyle = css("--adot"); ctx.lineWidth = 2;
   ctx.beginPath(); ctx.moveTo(xi(k), M.t - 8); ctx.lineTo(xi(k), 430 - M.b); ctx.stroke(); ctx.lineWidth = 1;
   ctx.fillStyle = css("--muted"); ctx.textBaseline = "top"; ctx.textAlign = "center";

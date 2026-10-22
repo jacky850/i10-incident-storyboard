@@ -56,6 +56,7 @@ MAX_AFTER_H = 4            # the window may grow to this many hours after the re
 CLEAR_MIN = 10             # slow traffic gone this long counts as recovered
 END_PAD_MIN = 15           # minutes shown after recovery
 HI_SIZE, HI_QUALITY = (1280, 720), 82   # site-camera frames for the enlarged viewer
+SECONDARY_AFTER_MIN = 60   # a secondary incident's queue still counts this long after its record ends
 SEED_KM = 0.5
 FIT_MIN = 10
 HORIZONS = (5, 15, 30)
@@ -119,6 +120,43 @@ def run_series(state, seg, s_inc):
         while lo - 1 >= 0 and row[lo - 1]:
             lo -= 1
         head[i], tail[i] = s1[hi], s0[lo]
+    return head, tail
+
+
+def combined_runs(state, seg, s_inc, secondary, times):
+    """The incident's run, joined with the run of each secondary incident while that one is active,
+    then followed in time: a run that overlaps the previous minute's extent stays part of the incident
+    after it has come loose from the incident, as a queue does when its head clears before its tail.
+    A secondary run counts from its record's start until SECONDARY_AFTER_MIN after its end."""
+    head, tail = run_series(state, seg, s_inc)
+    for x in secondary:
+        h, t = run_series(state, seg, x["s"])
+        active = (times >= x["start"]) & (times <= x["until"])
+        h, t = np.where(active, h, np.nan), np.where(active, t, np.nan)
+        head, tail = np.fmax(head, h), np.fmin(tail, t)
+    return follow_runs(state, seg, head, tail, s_inc + HEAD_KM)
+
+
+def follow_runs(state, seg, head, tail, s_max):
+    """Add to each minute every run of segments in state that overlaps the previous minute's extent."""
+    s0, s1 = seg.s0_km.to_numpy(), seg.s1_km.to_numpy()
+    head, tail = head.copy(), tail.copy()
+    for i in range(1, len(state)):
+        if np.isnan(tail[i - 1]):
+            continue
+        row, j = state[i], 0
+        while j < len(row):
+            if not row[j]:
+                j += 1
+                continue
+            k = j
+            while k + 1 < len(row) and row[k + 1]:
+                k += 1
+            lo, hi = s0[j], min(s1[k], s_max)
+            if lo <= head[i - 1] + 1e-6 and hi >= tail[i - 1] - 1e-6 and lo < s_max:   # touching runs count
+                head[i] = hi if np.isnan(head[i]) else max(head[i], hi)
+                tail[i] = lo if np.isnan(tail[i]) else min(tail[i], lo)
+            j = k + 1
     return head, tail
 
 
@@ -204,9 +242,10 @@ def nearby_records(case, chain, s_inc, t0, t1):
     recs = []
     ers = pd.read_csv(DATA / "ers_events.csv", parse_dates=["reported", "first_seen", "last_seen", "gone_by"])
     ers = ers[(ers.direction.str[0] == d) & (ers.reported <= t1) & (ers.gone_by.fillna(ers.last_seen) >= t0)]
+    secondary_ids = {int(x["ers"]) for x in case.get("secondary", []) if x.get("ers")}
     for r in ers.itertuples():
         _, s, off = locate(chain, r.lat, r.lon)
-        if off > 300 or abs(s - s_inc) > NEAR_RECORD_KM:
+        if r.ers_id not in secondary_ids and (off > 300 or abs(s - s_inc) > NEAR_RECORD_KM):
             continue
         history = ers_history(r.ers_id, t0, t1)
         first = history[0][1] if history else r.description
@@ -386,8 +425,15 @@ def build(case, chains, speed, cams_all, manifest, store):
     sp = speed[speed.xd.isin(seg.xd) & speed.t_local.between(t0, t_cap)]
     grid = sp.pivot_table(index="t_local", columns="xd", values="ratio").reindex(index=times, columns=seg.xd)
     smoothed = smooth(grid)
-    head, tail = run_series(hysteresis(smoothed, *SLOWED), seg, s_inc)
-    q_head, q_tail = run_series(hysteresis(smoothed, *QUEUED), seg, s_inc)
+    secondary = []
+    for x in case.get("secondary", []):
+        _, s_x, _ = locate(chain, x["lat"], x["lon"])
+        secondary.append({"s": s_x, "start": pd.Timestamp(x["start"]),
+                          "until": pd.Timestamp(x["end"]) + pd.Timedelta(minutes=SECONDARY_AFTER_MIN), "text": x["text"],
+                          "ers": x.get("ers")})
+    slowed_state, queued_state = hysteresis(smoothed, *SLOWED), hysteresis(smoothed, *QUEUED)
+    head, tail = combined_runs(slowed_state, seg, s_inc, secondary, times)
+    q_head, q_tail = combined_runs(queued_state, seg, s_inc, secondary, times)
     length = np.where(np.isnan(tail), 0.0, head - tail)
     q_length = np.where(np.isnan(q_tail), 0.0, q_head - q_tail)
 
@@ -468,6 +514,8 @@ def build(case, chains, speed, cams_all, manifest, store):
         "cameras": sorted(cams, key=lambda c: -c["s_km"]),
         "records": records,
         "closures": closures,
+        "secondary": [{"t": f"{x['start']:%Y-%m-%dT%H:%M}", "s": round(x["s"], 3), "text": x["text"],
+                       "ers": x["ers"]} for x in secondary],
         "travel_time": tt,
         "summary": {"max_slow_km": round(float(length.max()), 2), "max_queue_km": round(float(q_length.max()), 2)},
     }

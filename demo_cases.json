@@ -61,21 +61,12 @@
                  "text": "Crash. Exit ramp closed on I-10 Westbound near E University Dr (MP 151)", "lat": 33.415792, "lon": -112.015263},
       "window": ["2026-09-15T07:00", "2026-09-15T10:30"],
       "cameras": [
-        {"id": "790", "d_km": 5.13, "role": "downstream"},
-        {"id": "1187", "d_km": 4.38, "role": "downstream"},
-        {"id": "1198", "d_km": 3.34, "role": "downstream"},
         {"id": "1254", "d_km": 1.25, "role": "downstream"},
         {"id": "791", "d_km": 0.70, "role": "downstream"},
         {"id": "1255", "d_km": -0.12, "role": "site", "ptz_moves_from": "07:13", "note": "07:13 zoom 8.9x on the arterial queue; 07:15 13.3x on the scene"},
         {"id": "792", "d_km": -0.56, "role": "upstream"},
         {"id": "1170", "d_km": -2.07, "role": "upstream"},
-        {"id": "1197", "d_km": -3.16, "role": "upstream"},
-        {"id": "1256", "d_km": -3.75, "role": "upstream"},
-        {"id": "1257", "d_km": -4.14, "role": "no feed all 8 days"},
-        {"id": "1258", "d_km": -4.82, "role": "upstream"},
-        {"id": "1259", "d_km": -5.37, "role": "upstream"},
-        {"id": "1260", "d_km": -6.28, "role": "upstream"},
-        {"id": "1261", "d_km": -6.47, "role": "upstream"}
+        {"id": "1197", "d_km": -3.16, "role": "upstream"}
       ],
       "key_frames": {"1255": ["07:08", "07:13", "07:15", "07:17", "07:27"]},
       "impact": {"max_queue_km": 3.5, "peak_extra_travel_min": 2.3},
@@ -90,15 +81,22 @@
                  "start": "2026-09-17T10:23", "end": "2026-09-17T12:46",
                  "text": "Crash on I-10 Westbound at Exit 138 (Loop 202); secondary crashes 11:22 near 35th Ave and 12:28 near 43rd Ave",
                  "lat": 33.463067, "lon": -112.179248},
-      "window": ["2026-09-17T10:10", "2026-09-17T13:15"],
+      "secondary": [
+        {"ers": "1008053", "start": "2026-09-17T11:22", "end": "2026-09-17T12:20", "lat": 33.462267, "lon": -112.126827,
+         "text": "Crash on the right shoulder near 35th Ave"},
+        {"ers": "1008092", "start": "2026-09-17T12:28", "end": "2026-09-17T14:07", "lat": 33.462193, "lon": -112.152735,
+         "text": "Crash on the right shoulder near 43rd Ave"}
+      ],
+      "window": ["2026-09-17T10:10", "2026-09-17T13:35"],
       "cameras": [
         {"id": "769", "d_km": -5.0, "role": "queue tail and secondary-crash site", "queue": ["10:56", "11:55"], "ptz_moves_from": "11:20"},
         {"id": "770", "d_km": -6.0, "role": "queue tail at 12:45"},
-        {"id": "771", "d_km": -7.5, "role": "upstream, free", "ptz_moves_from": "11:34"}
+        {"id": "771", "d_km": -7.5, "role": "upstream; second queue 12:45", "ptz_moves_from": "11:34"},
+        {"id": "772", "d_km": -8.77, "role": "upstream; the second queue stops just short of it"}
       ],
       "key_frames": {"769": ["10:45", "11:20", "11:27", "12:45"]},
       "impact": {"max_queue_km": 5.8, "peak_extra_travel_min": 28.7},
-      "caveats": ["The primary crash is west of all cameras; only the tail is seen"]
+      "caveats": ["The primary crash is west of all cameras; no camera covers the 5 km between it and camera 769, so its queue is seen only at the tail", "The second queue after the 12:28 crash near 43rd Ave runs upstream past 769, 770 and 771 and stops about 8.4 km upstream, just short of camera 772"]
     }
   ],
   "optional": [
