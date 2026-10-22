@@ -39,6 +39,12 @@ SLOWED = (0.60, 0.75)      # enter below, leave above
 QUEUED = (0.45, 0.55)
 HEAD_KM = 1.5
 MIN_AHEAD_KM = 0.1         # a camera closer than this to the tail is already at it
+UP_SEARCH_KM = 15.0        # how far upstream of the cameras to follow a slowdown
+TAIL_PAD_KM = 1.0          # plotted road beyond the farthest tail
+MAX_AFTER_H = 4            # the window may grow to this many hours after the record
+CLEAR_MIN = 10             # slow traffic gone this long counts as recovered
+END_PAD_MIN = 15           # minutes shown after recovery
+HI_SIZE, HI_QUALITY = (1280, 720), 82   # site-camera frames for the enlarged viewer
 SEED_KM = 0.5
 FIT_MIN = 10
 HORIZONS = (5, 15, 30)
@@ -165,6 +171,23 @@ def ptz_moves(store, frames):
     return moves
 
 
+def ers_history(ers_id, t0, t1):
+    """(LastUpdated, description) each time the AZ511 snapshots show a new wording of this ERS event."""
+    lo = (t0 - pd.Timedelta(hours=1)).tz_localize("America/Phoenix").tz_convert("UTC")
+    hi = t1.tz_localize("America/Phoenix").tz_convert("UTC")
+    out, last = [], None
+    for f in sorted((DATA / "az511" / "events").glob("*/*.json")):
+        stamp = pd.Timestamp(f.stem.split("_")[-1])
+        if not lo <= stamp <= hi:
+            continue
+        for r in json.loads(f.read_text())["records"]:
+            if r["ID"] == ers_id and r["Description"] != last:
+                last = r["Description"]
+                t = pd.Timestamp(r["LastUpdated"], unit="s", tz="UTC").tz_convert("America/Phoenix").tz_localize(None)
+                out.append((t, last))
+    return out
+
+
 def nearby_records(case, chain, s_inc, t0, t1):
     d = case["direction"][0]
     recs = []
@@ -174,8 +197,13 @@ def nearby_records(case, chain, s_inc, t0, t1):
         _, s, off = locate(chain, r.lat, r.lon)
         if off > 300 or abs(s - s_inc) > NEAR_RECORD_KM:
             continue
+        history = ers_history(r.ers_id, t0, t1)
+        first = history[0][1] if history else r.description
         recs.append({"t": f"{r.reported:%Y-%m-%dT%H:%M}", "kind": "ERS", "what": "reported",
-                     "text": f"ERS {r.ers_id}: {r.description}", "d_km": round(s - s_inc, 2)})
+                     "text": f"ERS {r.ers_id}: {first}", "d_km": round(s - s_inc, 2)})
+        for t, text in history[1:]:
+            recs.append({"t": f"{t:%Y-%m-%dT%H:%M}", "kind": "ERS", "what": "updated",
+                         "text": f"ERS {r.ers_id} updated: {text}", "d_km": round(s - s_inc, 2)})
         if pd.notna(r.gone_by) and r.gone_by <= t1:
             recs.append({"t": f"{r.gone_by:%Y-%m-%dT%H:%M}", "kind": "ERS", "what": "cleared",
                          "text": f"ERS {r.ers_id} no longer listed on AZ511", "d_km": round(s - s_inc, 2)})
@@ -232,6 +260,18 @@ def chapters(times, length, queue_length, start):
     return [{"label": a, "t": f"{t:%Y-%m-%dT%H:%M}"} for a, t in sorted(out, key=lambda x: x[1])]
 
 
+def recovery_time(length, times, t_end):
+    """If slow traffic is still there at t_end, the first later minute from which it stays gone for
+    CLEAR_MIN minutes (or the last minute); otherwise t_end. A slowdown that starts after t_end
+    does not stretch the window."""
+    L = pd.Series(length, index=times).fillna(0.0)
+    if L.asof(t_end) <= 0:
+        return t_end
+    later = L[L.index >= t_end]
+    gone = (later == 0).rolling(CLEAR_MIN).sum() == CLEAR_MIN
+    return gone[gone].index[0] - pd.Timedelta(minutes=CLEAR_MIN - 1) if gone.any() else times[-1]
+
+
 def build(case, chains, speed, cams_all, manifest, store):
     d = case["direction"][0]
     chain = chains[d]
@@ -248,18 +288,31 @@ def build(case, chains, speed, cams_all, manifest, store):
         cams.append({"id": cid, "location": names[cid].replace("I-10 @", ""), "s_km": round(s, 3),
                      "d_km": round(s - s_inc, 2), "role": c.get("role", ""), "note": c.get("note", ""),
                      "dead": cid in DEAD_CAMERAS})
-    s_lo = min([c["s_km"] for c in cams] + [s_inc]) - 1.0
+    s_cam_lo = min([c["s_km"] for c in cams] + [s_inc])
     s_hi = max([c["s_km"] for c in cams] + [s_inc]) + 1.0
-    seg = chain[(chain.s1_km > s_lo) & (chain.s0_km < s_hi)].reset_index(drop=True)
+    seg = chain[(chain.s1_km > s_cam_lo - UP_SEARCH_KM) & (chain.s0_km < s_hi)].reset_index(drop=True)
 
-    times = pd.date_range(t0, t1, freq="min")
-    sp = speed[speed.xd.isin(seg.xd) & speed.t_local.between(t0, t1)]
+    # follow the slowdown long enough to see it clear, then trim time and road to what the story needs
+    t_cap = max(t1, start + pd.Timedelta(hours=MAX_AFTER_H))
+    times = pd.date_range(t0, t_cap, freq="min")
+    sp = speed[speed.xd.isin(seg.xd) & speed.t_local.between(t0, t_cap)]
     grid = sp.pivot_table(index="t_local", columns="xd", values="ratio").reindex(index=times, columns=seg.xd)
     smoothed = smooth(grid)
     head, tail = run_series(hysteresis(smoothed, *SLOWED), seg, s_inc)
     q_head, q_tail = run_series(hysteresis(smoothed, *QUEUED), seg, s_inc)
     length = np.where(np.isnan(tail), 0.0, head - tail)
     q_length = np.where(np.isnan(q_tail), 0.0, q_head - q_tail)
+
+    recovered = recovery_time(length, times, t1)
+    if recovered > t1:
+        t1 = min(t_cap, recovered + pd.Timedelta(minutes=END_PAD_MIN))
+    keep = times <= t1
+    times, grid, smoothed = times[keep], grid[keep], smoothed[keep]
+    head, tail, q_head, q_tail, length, q_length = (a[keep] for a in (head, tail, q_head, q_tail, length, q_length))
+    tails = np.concatenate([tail[~np.isnan(tail)], q_tail[~np.isnan(q_tail)]])
+    s_lo = min(s_cam_lo, tails.min() if len(tails) else s_cam_lo) - TAIL_PAD_KM
+    seg = seg[seg.s1_km > s_lo].reset_index(drop=True)
+    grid, smoothed = grid[seg.xd], smoothed[seg.xd]
     fc, score = forecast(length, times)
 
     up_cams = [c for c in cams if not c["dead"]]
@@ -285,15 +338,20 @@ def build(case, chains, speed, cams_all, manifest, store):
         fr = manifest[(manifest.camera_id == c["id"]) & manifest.t.between(t0, t1)]
         c["view"] = fr.view.iloc[0] if len(fr) else "no frames"
         c["frames"] = []
+        site = c["role"] == "site"
         (out_dir / "frames" / c["id"]).mkdir(parents=True, exist_ok=True)
+        if site:
+            (out_dir / "frames_hi" / c["id"]).mkdir(parents=True, exist_ok=True)
         for r in fr.itertuples():
             rel = f"frames/{c['id']}/{r.t:%H%M%S}.jpg"
-            dst = out_dir / rel
-            if not dst.exists():
-                img = Image.open(io.BytesIO(store.read(r.path)))
-                img.draft("RGB", (480, 270))
-                img.convert("RGB").resize((480, 270)).save(dst, quality=72)
-            c["frames"].append([f"{r.t:%Y-%m-%dT%H:%M:%S}", rel])
+            rel_hi = f"frames_hi/{c['id']}/{r.t:%H%M%S}.jpg"
+            dst, dst_hi = out_dir / rel, out_dir / rel_hi
+            if not dst.exists() or (site and not dst_hi.exists()):
+                img = Image.open(io.BytesIO(store.read(r.path))).convert("RGB")
+                img.resize((480, 270)).save(dst, quality=72)
+                if site:
+                    img.resize(HI_SIZE).save(dst_hi, quality=HI_QUALITY)
+            c["frames"].append([f"{r.t:%Y-%m-%dT%H:%M:%S}", rel] + ([rel_hi] if site else []))
         c["ptz_moves"] = ptz_moves(store, fr) if len(fr) > 1 else []
 
     records = nearby_records(case, chain, s_inc, t0, t1)

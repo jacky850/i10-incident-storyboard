@@ -80,9 +80,20 @@
   footer th { background: #003863; color: #fff; font-weight: 600; text-align: left; padding: 4px 10px; }
   footer td { padding: 4px 10px; border-bottom: 1px solid var(--line); color: var(--ink); }
   .notice { border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px; }
-  dialog { border: 0; padding: 0; background: #000; max-width: 96vw; }
-  dialog img { display: block; max-width: 96vw; max-height: 90vh; }
-  dialog::backdrop { background: rgba(0,0,0,.8); }
+  .cam.site .hint { position: absolute; left: 6px; top: 30px; font-size: 10px; font-weight: 700; padding: 2px 6px;
+                    border-radius: 4px; background: rgba(0,0,0,.72); color: #fff; pointer-events: none; }
+  #viewer { border: 0; padding: 0; width: 96vw; height: 92vh; max-width: 96vw; max-height: 92vh; background: #111; color: #eee;
+            border-radius: 10px; overflow: hidden; }
+  #viewer::backdrop { background: rgba(0,0,0,.82); }
+  #viewer[open] { display: flex; flex-direction: column; }
+  .vbar { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; padding: 8px 12px; background: #1c1c1c; font-size: 13px; }
+  .vbar .vbtns { margin-left: auto; display: flex; gap: 6px; flex-wrap: wrap; }
+  .vbar button { background: #2a2a2a; color: #eee; border-color: #444; }
+  .vbar .res { color: #aaa; }
+  .vstage { position: relative; flex: 1; overflow: hidden; cursor: grab; touch-action: none; }
+  .vstage.drag { cursor: grabbing; }
+  .vstage img { position: absolute; left: 0; top: 0; transform-origin: 0 0; user-select: none; -webkit-user-drag: none; max-width: none; }
+  .vhint { padding: 6px 12px; font-size: 12px; color: #999; background: #1c1c1c; }
 </style>
 </head>
 <body>
@@ -144,7 +155,21 @@
       for publication without ADOT's written permission.</div>
   </footer>
 </div>
-<dialog id="zoom"><img alt="Full-size camera frame"></dialog>
+<dialog id="viewer" aria-label="Camera frame viewer">
+  <div class="vbar">
+    <b id="vtitle"></b><span id="vtime"></span><span class="res" id="vres"></span>
+    <span class="vbtns">
+      <button id="vprev" aria-label="Previous frame">◀ Prev</button>
+      <button id="vnext" aria-label="Next frame">Next ▶</button>
+      <button id="vout" aria-label="Zoom out">−</button>
+      <button id="vin" aria-label="Zoom in">+</button>
+      <button id="vfit">Fit</button>
+      <button id="vclose">✕ Close</button>
+    </span>
+  </div>
+  <div class="vstage" id="vstage"><img id="vimg" alt=""></div>
+  <div class="vhint">Scroll or + / − to zoom, drag to move, double-click to zoom in or out, ← → for the previous or next frame, Esc to close. The zoom stays when you change frames.</div>
+</dialog>
 <script>
 const D = /*__DATA__*/null;
 const $ = (s) => document.querySelector(s);
@@ -152,12 +177,13 @@ const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v
 const T = D.times.map((t) => new Date(t));
 let k = 0, timer = null;
 
-const ROLE = { downstream: "DOWNSTREAM", site: "SITE", queue: "QUEUE", "queue tail": "QUEUE TAIL" };
 function roleLabel(c) {
   if (c.dead) return "NO FEED";
   const r = (c.role || "").toLowerCase();
-  for (const key of Object.keys(ROLE)) if (r.startsWith(key)) return ROLE[key];
-  return r ? r.toUpperCase().slice(0, 18) : "";
+  if (r.startsWith("site")) return "SITE";
+  if (r.startsWith("downstream")) return "DOWNSTREAM";
+  if (r.startsWith("queue") || r.startsWith("upstream")) return "UPSTREAM";
+  return c.d_km > 0 ? "DOWNSTREAM" : "UPSTREAM";
 }
 function hm(d) { return d.toTimeString().slice(0, 5); }
 function hms(d) { return d.toTimeString().slice(0, 8); }
@@ -200,18 +226,83 @@ function cams() {
   const box = $("#cams");
   D.cameras.forEach((c, i) => {
     const el = document.createElement("article");
-    el.className = "cam"; el.id = `cam${i}`;
+    const site = roleLabel(c) === "SITE";
+    el.className = `cam${site ? " site" : ""}`; el.id = `cam${i}`;
     el.innerHTML = `${c.frames.length ? `<img alt="Camera ${c.id}, ${c.location}">` : `<div class="noimg">${c.dead ? "No live feed on any of the 8 days" : "No frames"}</div>`}
       <span class="role">${roleLabel(c)}</span><span class="moved">CAMERA MOVED</span>
+      ${site && c.frames.length ? `<span class="hint">🔍 Click to enlarge</span>` : ""}
       <div class="cap"><b>${c.id}</b> ${c.location}
         <div class="sub"><span>${dist(c.d_km)}</span><span class="ft"></span></div>
         <div class="q"></div></div>`;
     const img = el.querySelector("img");
-    if (img) img.onclick = () => { $("#zoom img").src = img.src; $("#zoom").showModal(); };
+    if (img) img.onclick = () => openViewer(i);
     box.appendChild(el);
   });
-  $("#zoom").onclick = () => $("#zoom").close();
 }
+
+// Frame viewer: zoom about the pointer, drag to pan, step through one camera's frames
+const V = { cam: null, idx: 0, s: 1, fit: 1, tx: 0, ty: 0, keep: false };
+const vstage = $("#vstage"), vimg = $("#vimg");
+function frameIndexAt(c, t) {
+  let idx = 0;
+  c.frames.forEach((f, j) => { if (new Date(f[0]) <= t) idx = j; });
+  return idx;
+}
+function openViewer(i) {
+  const c = D.cameras[i];
+  V.cam = c; V.idx = frameIndexAt(c, new Date(T[k].getTime() + 59000)); V.keep = false;
+  $("#viewer").showModal();
+  showFrame();
+}
+function showFrame() {
+  const c = V.cam, f = c.frames[V.idx], hi = f.length > 2;
+  $("#vtitle").textContent = `${c.id} ${c.location} · ${roleLabel(c)}`;
+  $("#vtime").textContent = `frame ${hms(new Date(f[0]))} · ${V.idx + 1} of ${c.frames.length}`;
+  $("#vres").textContent = hi ? "high resolution" : "preview resolution";
+  vimg.onload = () => {
+    const w = vstage.clientWidth, h = vstage.clientHeight;
+    V.fit = Math.min(w / vimg.naturalWidth, h / vimg.naturalHeight);
+    if (!V.keep) { V.s = V.fit; V.tx = (w - vimg.naturalWidth * V.s) / 2; V.ty = (h - vimg.naturalHeight * V.s) / 2; }
+    V.keep = true;
+    applyView();
+  };
+  vimg.src = hi ? f[2] : f[1];
+}
+function applyView() { vimg.style.transform = `translate(${V.tx}px, ${V.ty}px) scale(${V.s})`; }
+function zoomAt(factor, px, py) {
+  const s = Math.max(V.fit, Math.min(V.fit * 10, V.s * factor));
+  V.tx = px - (px - V.tx) * (s / V.s); V.ty = py - (py - V.ty) * (s / V.s); V.s = s;
+  if (s === V.fit) { V.tx = (vstage.clientWidth - vimg.naturalWidth * s) / 2; V.ty = (vstage.clientHeight - vimg.naturalHeight * s) / 2; }
+  applyView();
+}
+function centre() { return [vstage.clientWidth / 2, vstage.clientHeight / 2]; }
+function stepFrame(d) { const n = V.cam.frames.length; V.idx = Math.max(0, Math.min(n - 1, V.idx + d)); showFrame(); }
+vstage.addEventListener("wheel", (e) => {
+  e.preventDefault();
+  const r = vstage.getBoundingClientRect();
+  zoomAt(e.deltaY < 0 ? 1.15 : 1 / 1.15, e.clientX - r.left, e.clientY - r.top);
+}, { passive: false });
+vstage.addEventListener("dblclick", (e) => {
+  const r = vstage.getBoundingClientRect();
+  zoomAt(V.s > V.fit * 1.05 ? V.fit / V.s : 2.5, e.clientX - r.left, e.clientY - r.top);
+});
+let drag = null;
+vstage.addEventListener("pointerdown", (e) => { drag = [e.clientX, e.clientY, V.tx, V.ty]; vstage.setPointerCapture(e.pointerId); vstage.classList.add("drag"); });
+vstage.addEventListener("pointermove", (e) => { if (!drag) return; V.tx = drag[2] + e.clientX - drag[0]; V.ty = drag[3] + e.clientY - drag[1]; applyView(); });
+vstage.addEventListener("pointerup", () => { drag = null; vstage.classList.remove("drag"); });
+$("#vprev").onclick = () => stepFrame(-1);
+$("#vnext").onclick = () => stepFrame(1);
+$("#vin").onclick = () => zoomAt(1.5, ...centre());
+$("#vout").onclick = () => zoomAt(1 / 1.5, ...centre());
+$("#vfit").onclick = () => zoomAt(V.fit / V.s, ...centre());
+$("#vclose").onclick = () => $("#viewer").close();
+$("#viewer").addEventListener("keydown", (e) => {
+  if (e.key === "ArrowLeft") { e.preventDefault(); stepFrame(-1); }
+  if (e.key === "ArrowRight") { e.preventDefault(); stepFrame(1); }
+  if (e.key === "+" || e.key === "=") zoomAt(1.5, ...centre());
+  if (e.key === "-") zoomAt(1 / 1.5, ...centre());
+  e.stopPropagation();
+});
 
 function frameAt(c, t) {
   let best = null;
@@ -397,6 +488,7 @@ $("#play").onclick = () => {
   $("#play").textContent = "❚❚ Pause"; $("#play").classList.add("on");
 };
 document.addEventListener("keydown", (e) => {
+  if ($("#viewer").open) return;
   if (e.key === "ArrowRight") seek(Math.min(T.length - 1, k + 1));
   if (e.key === "ArrowLeft") seek(Math.max(0, k - 1));
   if (e.key === " ") { e.preventDefault(); $("#play").click(); }
