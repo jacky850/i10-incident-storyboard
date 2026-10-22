@@ -374,6 +374,8 @@ const CLOSURE = {
 const KINDS = [...new Set(D.closures.map((p) => p.kind))];
 M.t = 22 + 16 * KINDS.length;
 function tIndex(t) { return Math.max(0, Math.min(T.length - 1, Math.round((new Date(t) - T[0]) / 60000))); }
+// "08:25–10:30 (record open until 19:51)" when the window cuts a closure short
+function span(p) { return `${p.t0.slice(11)}–${p.t1.slice(11)}` + (p.ends > p.t1 ? ` (record open until ${p.ends.slice(11)})` : ""); }
 function drawClosureLines(ctx, xi, top, bottom) {
   D.closures.forEach((p) => {
     ctx.strokeStyle = CLOSURE[p.kind].colour; ctx.lineWidth = 1.5; ctx.setLineDash([4, 3]);
@@ -415,7 +417,7 @@ function renderTS() {
     D.closures.filter((p) => p.kind === kind).forEach((p) => {
       const x0 = xi(tIndex(p.t0)), x1 = Math.max(x0 + 3, xi(tIndex(p.t1)));
       ctx.fillStyle = cfg.colour; ctx.fillRect(x0, y, x1 - x0, 12);
-      const label = `${cfg.short} ${p.t0.slice(11)}–${p.t1.slice(11)}`;
+      const label = `${cfg.short} ${span(p)}`;
       const fits = ctx.measureText(label).width + 8 < x1 - x0;
       ctx.fillStyle = fits ? cfg.text : css("--ink");
       ctx.fillText(label, fits ? x0 + 4 : x1 + 4, y + 6.5);
@@ -517,7 +519,7 @@ function renderTT() {
 
 function closureLegend() {
   $("#closureLegend").innerHTML = D.closures.length ? "Records: " + D.closures.map((p) =>
-    `<span><i style="background:${CLOSURE[p.kind].colour}"></i>${p.label} ${p.t0.slice(11)}–${p.t1.slice(11)} (${p.source})</span>`).join(" ")
+    `<span><i style="background:${CLOSURE[p.kind].colour}"></i>${p.label} ${span(p)} (${p.source})</span>`).join(" ")
     : "Records name no lane or ramp closure in this window.";
   const tt = D.travel_time;
   $("#ttlegend").innerHTML = `<span><span class="swatch" style="border-color:#d55e00"></span>this ${tt.weekday}</span>

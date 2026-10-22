@@ -53,38 +53,29 @@
       "caveats": ["Dark until about 06:07; queue visible as tail lights", "Camera 785 moved at 05:36, 2 min before the ERS record", "Bottleneck between 785 and 786, downstream of the recorded location", "Merges with the morning peak after 06:30"]
     },
     {
-      "id": "C_0915_broadway_fire",
-      "title": "Tue Sep 15: vehicle fire, I-10 EB Broadway Curve near US-60",
-      "shows": "The pilot corridor: queue tail placed between cameras, a dead camera (1257) bridged by wave physics, an event INRIX logged and ERS did not",
-      "direction": "EB",
-      "record": {"ers": null, "inrix": "faaa171a-06b6-4dc3-a356-304dbc5e877e", "start": "2026-09-15T17:34", "end": "2026-09-15T18:26",
-                 "text": "Restrictions due to vehicle fire on I-10 Eastbound at Exits 152, 154, 155 US-60", "lat": 33.371594, "lon": -111.968142,
-                 "nearest_ers": "1006518, disabled vehicle on the left shoulder near Baseline Rd, 16:35-17:57, 1.7 km north"},
-      "window": ["2026-09-15T17:15", "2026-09-15T18:55"],
-      "cameras": [
-        {"id": "1261", "d_km": -2.04, "role": "queue", "queue": ["17:38", "18:32"], "note": "faces WB; EB at the left edge"},
-        {"id": "1260", "d_km": -2.28, "role": "queue", "queue": ["17:38", "18:26"], "note": "best view: near roadway is EB, fixed view"},
-        {"id": "1259", "d_km": -3.15, "role": "queue", "queue": ["17:45", "18:11"]},
-        {"id": "1258", "d_km": -3.71, "role": "queue tail", "queue": ["17:45", "18:11"]},
-        {"id": "1257", "d_km": -4.36, "role": "no feed all 8 days"},
-        {"id": "1256", "d_km": -4.67, "role": "upstream of the tail"}
-      ],
-      "key_frames": {"1260": ["17:25", "18:05", "18:35"], "1261": ["17:25", "17:55"]},
-      "impact": {"max_queue_km": 4.6, "peak_extra_travel_min": 21.5},
-      "caveats": ["The fire itself is 2 km beyond the last camera", "Dusk after 18:35"]
-    },
-    {
       "id": "D_0915_university_closure",
       "title": "Tue Sep 15: crash and exit-ramp closure, I-10 WB at University Dr",
       "shows": "The scene seen through operator PTZ zoom (8.9x, 13.3x on the overlay): heavy equipment over the wall, a wrecked truck, 4+ fire engines; a 12.7 h closure",
       "direction": "WB",
       "record": {"ers": "1006076", "inrix": "f73e87bc-bcf2-4c1c-bb94-3668832212d8", "start": "2026-09-15T07:08", "end": "2026-09-15T19:51",
                  "text": "Crash. Exit ramp closed on I-10 Westbound near E University Dr (MP 151)", "lat": 33.415792, "lon": -112.015263},
-      "window": ["2026-09-15T07:00", "2026-09-15T08:00"],
+      "window": ["2026-09-15T07:00", "2026-09-15T10:30"],
       "cameras": [
-        {"id": "1255", "d_km": -0.12, "role": "site", "ptz_moves_from": "07:13", "note": "07:13 zoom 8.9x on the arterial queue; 07:15 13.3x on the scene"},
+        {"id": "790", "d_km": 5.13, "role": "downstream"},
+        {"id": "1187", "d_km": 4.38, "role": "downstream"},
+        {"id": "1198", "d_km": 3.34, "role": "downstream"},
+        {"id": "1254", "d_km": 1.25, "role": "downstream"},
         {"id": "791", "d_km": 0.70, "role": "downstream"},
-        {"id": "792", "d_km": -0.56, "role": "upstream"}
+        {"id": "1255", "d_km": -0.12, "role": "site", "ptz_moves_from": "07:13", "note": "07:13 zoom 8.9x on the arterial queue; 07:15 13.3x on the scene"},
+        {"id": "792", "d_km": -0.56, "role": "upstream"},
+        {"id": "1170", "d_km": -2.07, "role": "upstream"},
+        {"id": "1197", "d_km": -3.16, "role": "upstream"},
+        {"id": "1256", "d_km": -3.75, "role": "upstream"},
+        {"id": "1257", "d_km": -4.14, "role": "no feed all 8 days"},
+        {"id": "1258", "d_km": -4.82, "role": "upstream"},
+        {"id": "1259", "d_km": -5.37, "role": "upstream"},
+        {"id": "1260", "d_km": -6.28, "role": "upstream"},
+        {"id": "1261", "d_km": -6.47, "role": "upstream"}
       ],
       "key_frames": {"1255": ["07:08", "07:13", "07:15", "07:17", "07:27"]},
       "impact": {"max_queue_km": 3.5, "peak_extra_travel_min": 2.3},
@@ -111,6 +102,28 @@
     }
   ],
   "optional": [
+    {
+      "id": "C_0915_broadway_fire",
+      "title": "Tue Sep 15: vehicle fire, I-10 EB Broadway Curve near US-60",
+      "shows": "The pilot corridor: queue tail placed between cameras, a dead camera (1257) bridged by wave physics, an event INRIX logged and ERS did not",
+      "direction": "EB",
+      "record": {"ers": null, "inrix": "faaa171a-06b6-4dc3-a356-304dbc5e877e", "start": "2026-09-15T17:34", "end": "2026-09-15T18:26",
+                 "text": "Restrictions due to vehicle fire on I-10 Eastbound at Exits 152, 154, 155 US-60", "lat": 33.371594, "lon": -111.968142,
+                 "nearest_ers": "1006518, disabled vehicle on the left shoulder near Baseline Rd, 16:35-17:57, 1.7 km north"},
+      "window": ["2026-09-15T17:15", "2026-09-15T18:55"],
+      "cameras": [
+        {"id": "1261", "d_km": -2.04, "role": "queue", "queue": ["17:38", "18:32"], "note": "faces WB; EB at the left edge"},
+        {"id": "1260", "d_km": -2.28, "role": "queue", "queue": ["17:38", "18:26"], "note": "best view: near roadway is EB, fixed view"},
+        {"id": "1259", "d_km": -3.15, "role": "queue", "queue": ["17:45", "18:11"]},
+        {"id": "1258", "d_km": -3.71, "role": "queue tail", "queue": ["17:45", "18:11"]},
+        {"id": "1257", "d_km": -4.36, "role": "no feed all 8 days"},
+        {"id": "1256", "d_km": -4.67, "role": "upstream of the tail"}
+      ],
+      "key_frames": {"1260": ["17:25", "18:05", "18:35"], "1261": ["17:25", "17:55"]},
+      "impact": {"max_queue_km": 4.6, "peak_extra_travel_min": 21.5},
+      "caveats": ["The fire itself is 2 km beyond the last camera", "Dusk after 18:35"],
+      "use": "Kept for three things the main cases do not show: the Broadway Curve pilot corridor, an incident logged by INRIX but not by ERS, and a dead camera (1257) for phase 2 to bridge with wave physics. Limits: no site camera and no downstream camera; the fire is 2 km beyond the last camera, so only the upstream queue is seen"
+    },
     {
       "id": "F_0916_thunderstorm",
       "title": "Wed Sep 16 midday: crash inside a thunderstorm queue, I-10 EB near 3rd St",

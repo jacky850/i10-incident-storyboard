@@ -69,7 +69,7 @@ TEMPLATE = Path(__file__).parent / "storyboard_template.html"
 
 def cases():
     cfg = json.loads((REPO / "demo_cases.json").read_text())
-    return cfg["cases"] + cfg.get("optional", [])
+    return cfg["cases"] + [c | {"optional": True} for c in cfg.get("optional", [])]
 
 
 def load_manifest():
@@ -298,13 +298,15 @@ def closure_phases(case, t0, t1):
         kind = next(((k, label) for k, label, rx in CLOSURE_KINDS if rx.search(text)), None)
         if kind is None or b < t0 or a > t1:
             continue
+        ends = b                                  # the record's own end, which may lie past the window
         a, b = max(a, t0), min(b, t1)
         last = phases[-1] if phases else None
         if last and last["kind"] == kind[0] and pd.Timestamp(last["t1"]) >= a - pd.Timedelta(minutes=1):
             last["t1"] = f"{max(pd.Timestamp(last['t1']), b):%Y-%m-%dT%H:%M}"
+            last["ends"] = f"{max(pd.Timestamp(last['ends']), ends):%Y-%m-%dT%H:%M}"
             continue
         phases.append({"kind": kind[0], "label": kind[1], "source": source,
-                       "t0": f"{a:%Y-%m-%dT%H:%M}", "t1": f"{b:%Y-%m-%dT%H:%M}"})
+                       "t0": f"{a:%Y-%m-%dT%H:%M}", "t1": f"{b:%Y-%m-%dT%H:%M}", "ends": f"{ends:%Y-%m-%dT%H:%M}"})
     return phases
 
 
@@ -446,7 +448,8 @@ def build(case, chains, speed, cams_all, manifest, store):
     first_move = min((m for c in cams for m in c["ptz_moves"] if m >= f"{start - pd.Timedelta(minutes=20):%Y-%m-%dT%H:%M}"),
                      default=None)
     data = {
-        "case": {k: case[k] for k in ("id", "title", "shows", "direction") if k in case} | {"record": case["record"]},
+        "case": {k: case[k] for k in ("id", "title", "shows", "direction", "use", "optional") if k in case}
+                | {"record": case["record"]},
         "caveats": case.get("caveats", []) + ([case["use"]] if "use" in case else []),
         "window": [f"{t0:%Y-%m-%dT%H:%M}", f"{t1:%Y-%m-%dT%H:%M}"],
         "start": f"{start:%Y-%m-%dT%H:%M}",
@@ -484,10 +487,16 @@ def build(case, chains, speed, cams_all, manifest, store):
 
 
 def index_page(built):
-    rows = "".join(
-        f'<li><a href="{d["case"]["id"]}/index.html"><b>{d["case"]["id"][0]}</b> {d["case"]["title"]}</a>'
-        f'<span>{d["case"]["shows"]}</span></li>' for d in built)
-    html = (TEMPLATE.parent / "storyboard_index.html").read_text().replace("<!--CASES-->", rows)
+    def rows(ds):
+        return "".join(
+            f'<li><a href="{d["case"]["id"]}/index.html"><b>{d["case"]["id"][0]}</b> {d["case"]["title"]}</a>'
+            f'<span>{d["case"]["shows"]}</span>'
+            + (f'<span class="use">{d["case"]["use"]}</span>' if d["case"].get("use") else "") + "</li>"
+            for d in ds)
+    main = [d for d in built if not d["case"].get("optional")]
+    optional = [d for d in built if d["case"].get("optional")]
+    html = (TEMPLATE.parent / "storyboard_index.html").read_text()
+    html = html.replace("<!--CASES-->", rows(main)).replace("<!--OPTIONAL-->", rows(optional))
     (OUT / "storyboard" / "index.html").write_text(html)
 
 
