@@ -266,6 +266,7 @@ function openViewer(i) {
   showFrame();
 }
 function showFrame() {
+  // f[2] is a separate high-resolution copy, or 1 when f[1] is already the sharper copy (bundled pages)
   const c = V.cam, f = c.frames[V.idx], hi = f.length > 2;
   $("#vtitle").textContent = `${c.id} ${c.location} · ${roleLabel(c)}`;
   $("#vtime").textContent = `frame ${hms(new Date(f[0]))} · ${V.idx + 1} of ${c.frames.length}`;
@@ -277,7 +278,7 @@ function showFrame() {
     V.keep = true;
     applyView();
   };
-  vimg.src = hi ? f[2] : f[1];
+  vimg.src = typeof f[2] === "string" ? f[2] : f[1];
 }
 function applyView() { vimg.style.transform = `translate(${V.tx}px, ${V.ty}px) scale(${V.s})`; }
 function zoomAt(factor, px, py) {
