@@ -1,7 +1,6 @@
 """Figures for the README: where the data are, and when.
 
-  docs/figures/coverage_map.png   INRIX XD segments, AZ511 cameras and the six cases on a basemap
-  docs/figures/camera_map.png     the camera stretch with every camera's ID
+  docs/figures/coverage_map.png   the camera stretch with every camera's ID and the cases; inset: the INRIX corridor
   docs/figures/data_timeline.png  the period each data set covers, the camera outage and the cases
 
 The basemap is Esri World Topographic Map, fetched as Web Mercator tiles and cached in data/tiles/.
@@ -21,6 +20,7 @@ from PIL import Image
 
 matplotlib.use("Agg")
 import matplotlib.dates as mdates  # noqa: E402
+import matplotlib.patches  # noqa: E402
 import matplotlib.pyplot as plt  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).parent))
@@ -156,37 +156,10 @@ def note(ax, lon, lat, text, dx, dy, **kw):
 
 
 def coverage_map(chains, cams):
-    fig, ax = plt.subplots(figsize=(13, 7.6))
-    basemap(ax, -112.50, -111.90, 33.25, 33.54, 12)
-    corridor_lines(ax, chains, SPEED_BLUE, 4.5)
-    draw_cameras(ax, cams, 26)
-    draw_cases(ax, {"A": (-2500, 3200), "B": (1500, 3600), "C": (3800, -1500), "D": (-4200, -1800),
-                    "E": (0, 3200), "F": (-1200, -3600)})
-    by = cams.set_index("ID")
-    note(ax, -112.30, 33.4615, "INRIX XD speeds: I-10 both directions,\n89 segments each way, 63 km, 1 minute",
-         0, 5200)
-    note(ax, by.Longitude["779"], by.Latitude["779"], "Deck Park tunnel", -3500, -5200)
-    note(ax, by.Longitude["789"], by.Latitude["789"], "Mini Stack (I-10 / I-17 / SR-51 / Loop 202)", -2500, 9800)
-    note(ax, -112.010, 33.4352, "Sky Harbor Airport", 6500, 6500)
-    note(ax, by.Longitude["1258"], by.Latitude["1258"], "Broadway Curve\n(camera 1257 no feed)", -7000, -5200)
-    note(ax, by.Longitude["769"], by.Latitude["769"], "AZ511 cameras: 37 views,\n27th Ave to US-60, 21 km", -9000, -6500)
-    scale_bar(ax, -112.06, 33.268, 10, "10 km")
-    north_arrow(ax, -111.925, 33.505)
-    legend_box(ax, [("line", "INRIX XD segments (speed, 1 min)", SPEED_BLUE),
-                    ("cam", "AZ511 camera (still about once a minute)", None),
-                    ("dead", "Camera 1257, no image on any day", None),
-                    ("case", "Main case (A, B, D, E)", ADOT_BLUE),
-                    ("case", "Optional case (C, F)", CASE_GREY)], "lower left")
-    ax.set_title("Data coverage on I-10, Phoenix, Arizona", fontsize=13, loc="left")
-    fig.text(0.99, 0.01, ATTRIBUTION, ha="right", fontsize=7, color="#555")
-    fig.tight_layout()
-    fig.savefig(FIG / "coverage_map.png", dpi=150)
-    plt.close(fig)
-
-
-def camera_map(chains, cams):
-    fig, ax = plt.subplots(figsize=(13, 8.2))
-    basemap(ax, -112.140, -111.950, 33.385, 33.478, 14)
+    """Main map: the camera stretch with every camera's ID. Inset: the whole INRIX corridor."""
+    lon0, lon1, lat0, lat1 = -112.142, -111.948, 33.383, 33.520
+    fig, ax = plt.subplots(figsize=(13, 11))
+    basemap(ax, lon0, lon1, lat0, lat1, 14)
     corridor_lines(ax, chains, SPEED_BLUE, 3)
     draw_cameras(ax, cams, 40)
     tunnel = [str(i) for i in range(776, 784)]
@@ -211,25 +184,49 @@ def camera_map(chains, cams):
                 xytext=(t.x.mean() - 600, t.y.mean() - 2600), fontsize=9, ha="center", zorder=9,
                 bbox={"boxstyle": "round,pad=0.3", "fc": "white", "ec": "none", "alpha": 0.9},
                 arrowprops={"arrowstyle": "->", "lw": 1})
-    draw_cases(ax, {"A": (-900, 1400), "B": (900, 1500), "C": (1600, -900), "D": (-1500, -900),
-                    "E": (0, 1300), "F": (-1900, 700)})
+    draw_cases(ax, {"A": (-900, 1400), "B": (900, 1500), "D": (-1500, -900), "F": (-1900, 700)})
     by = cams.set_index("ID")
-    for label, cid, dx, dy in [("Mini Stack", "788", 1800, 1300), ("Sky Harbor Airport", None, 0, 0),
-                               ("Broadway Curve", "1258", -2600, -1700)]:
-        if cid:
-            note(ax, by.Longitude[cid], by.Latitude[cid], label, dx, dy)
+    note(ax, by.Longitude["788"], by.Latitude["788"], "Mini Stack", 1800, 1300)
+    note(ax, by.Longitude["1258"], by.Latitude["1258"], "Broadway Curve", -2600, -1700)
     x, y = merc(-112.005, 33.433)
     ax.text(x, y, "Sky Harbor\nAirport", fontsize=10, ha="center", color="#333", style="italic", zorder=4)
-    scale_bar(ax, -112.135, 33.390, 2, "2 km")
-    north_arrow(ax, -111.958, 33.468)
-    legend_box(ax, [("line", "INRIX XD segments", SPEED_BLUE), ("cam", "AZ511 camera (ID beside it)", None),
-                    ("dead", "1257: no image on any day", None), ("case", "Main case", ADOT_BLUE),
-                    ("case", "Optional case", CASE_GREY)], "lower left")
-    ax.set_title("The 37 AZ511 camera views, 27th Ave to US-60 (I-10 MP 142.1–155.2, about 21 km)",
-                 fontsize=12, loc="left")
+    # the two cases outside this map, pointed to from its edges
+    for text, lon, lat, ha in [("E: crash at Exit 138,\n4 km west of camera 769 ←", lon0 + 0.002, 33.4415, "left"),
+                               ("C: vehicle fire 2 km south of camera 1261,\noff this map to the south ↓", -112.035, lat0 + 0.003, "center")]:
+        x, y = merc(lon, lat)
+        ax.text(x, y, text, fontsize=9, ha=ha, va="bottom", zorder=9, color=CASE_GREY if text[0] == "C" else ADOT_BLUE,
+                fontweight="bold", bbox={"boxstyle": "round,pad=0.3", "fc": "white", "ec": "none", "alpha": 0.9})
+    scale_bar(ax, -112.000, 33.509, 2, "2 km")
+    north_arrow(ax, -111.958, 33.508)
+    legend_box(ax, [("line", "INRIX XD segments (speed, 1 min)", SPEED_BLUE),
+                    ("cam", "AZ511 camera, ID beside it (still about once a minute)", None),
+                    ("dead", "Camera 1257, no image on any day", None),
+                    ("case", "Main case (A, B, D, E)", ADOT_BLUE),
+                    ("case", "Optional case (C, F)", CASE_GREY)], "lower left")
+    ax.set_title("Data coverage: 37 AZ511 camera views on I-10 from 27th Ave to US-60 (MP 142.1–155.2, about "
+                 "21 km), inside 63 km of INRIX speeds (inset)", fontsize=11.5, loc="left")
+
+    # inset: the whole speed corridor, with the main map's camera stretch boxed
+    ins = ax.inset_axes([0.008, 0.615, 0.43, 0.375])
+    basemap(ins, -112.50, -111.90, 33.25, 33.54, 11)
+    corridor_lines(ins, chains, SPEED_BLUE, 2.5)
+    ins.scatter(cams.x, cams.y, s=5, color="white", edgecolor="k", lw=0.4, zorder=5)
+    (bx0, by0), (bx1, by1) = merc(lon0, lat0), merc(lon1, 33.478)
+    ins.add_patch(matplotlib.patches.Rectangle((bx0, by0), bx1 - bx0, by1 - by0, fill=False, ec="k", lw=1.2, zorder=6))
+    for c, optional in cases():
+        x, y = merc(c["record"]["lon"], c["record"]["lat"])
+        ins.text(x, y, c["id"][0], fontsize=7, ha="center", va="center", color="white", fontweight="bold", zorder=7,
+                 bbox={"boxstyle": "circle,pad=0.15", "fc": CASE_GREY if optional else ADOT_BLUE, "ec": "white", "lw": 0.6})
+    x, y = merc(-112.48, 33.525)
+    ins.text(x, y, "INRIX XD speeds, I-10 both directions: 89 segments and 63 km each way,\n"
+                   "Goodyear to Chandler. Box: the camera stretch in the main map", fontsize=7.5, va="top", zorder=8,
+             bbox={"boxstyle": "round,pad=0.3", "fc": "white", "ec": "none", "alpha": 0.9})
+    scale_bar(ins, -112.46, 33.272, 10, "10 km")
+    ins.add_patch(matplotlib.patches.Rectangle((0, 0), 1, 1, transform=ins.transAxes, fill=False, ec="k", lw=1.5, zorder=9))
+
     fig.text(0.99, 0.01, ATTRIBUTION, ha="right", fontsize=7, color="#555")
     fig.tight_layout()
-    fig.savefig(FIG / "camera_map.png", dpi=150)
+    fig.savefig(FIG / "coverage_map.png", dpi=150)
     plt.close(fig)
 
 
@@ -284,7 +281,6 @@ def main():
     chains = load_chains(INRIX_SPEED / "metadata.csv")
     cams = cameras()
     coverage_map(chains, cams)
-    camera_map(chains, cams)
     timeline()
     print("\n".join(str(p) for p in sorted(FIG.glob("*.png"))))
 

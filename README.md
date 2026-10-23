@@ -18,10 +18,12 @@ Contents: [1. Data](#1-data) · [2. Dashboard design](#2-dashboard-design) ·
 
 ![Data coverage on I-10, Phoenix](docs/figures/coverage_map.png)
 
-*INRIX speeds cover 63 km of I-10 in each direction, from Goodyear in the west to Chandler in the
-south-east. The 37 AZ511 camera views cover the 21 km from 27th Ave through the
-Deck Park tunnel, past the Mini Stack and Sky Harbor Airport, to the Broadway Curve and US-60. Letters
-mark the six cases.*
+*The main map is the camera stretch: 37 AZ511 views over the 21 km from 27th Ave through the Deck Park
+tunnel, past the Mini Stack and Sky Harbor Airport, to the Broadway Curve and US-60, each with its ID.
+Eight views sit in the tunnel (776–783, four labelled eastbound and four westbound by AZ511). Camera
+1257 at Broadway Rd returned AZ511's "no live feed" image on all eight days. The inset is the whole
+speed corridor, 63 km of I-10 in each direction from Goodyear to Chandler, with the camera stretch
+boxed. Letters mark the six cases; C and E lie outside the camera stretch.*
 
 | Data | Source and how it was collected | Road covered | Period (local time) | Interval | Amount |
 |---|---|---|---|---|---|
@@ -30,12 +32,6 @@ mark the six cases.*
 | **AZ511 events (ERS)** | Our collector on ASU's Sol cluster called the AZ511 events API and kept the events inside the corridor box (lat 33.360–33.493, lon −112.156 to −111.937). Each snapshot lists the events active at that moment, so the span of every event and every rewording of its description can be recovered | I-10 through the camera stretch and a few km either side | Sep 9 18:08 – Sep 17 15:43 | About every 5 min | 2,158 snapshots, 86 ERS events (83 crashes and incidents, 2 closures, 1 roadwork) |
 | **Camera stills** | The same collector, triggered every minute by Slurm `scrontab`, fetched the current still of each camera view from the AZ511 API. An image identical to the previous one is not saved again; AZ511's "no live feed" image is logged as unavailable. Each UTC day is archived as one tar file in the team Dropbox | 37 camera views on I-10 from 27th Ave to US-60, MP 142.1–155.2, about 21 km | Sep 9 18:08 – Sep 17 15:45 | Median 1.02 min; 1.0–1.4 min most of the time, up to about 3 min when the scheduler queues | 349,756 images, 77 GB in 8 daily tars |
 | **Weather** | The same collector, NWS API observations at Phoenix Sky Harbor (KPHX) | Point station by the corridor | Sep 9 18:08 – Sep 17 15:43 | About every 30 min | 40 observations a day |
-
-![Camera views on I-10](docs/figures/camera_map.png)
-
-*Every camera view by its AZ511 ID. Eight views sit in the Deck Park tunnel (776–783, four labelled
-eastbound and four westbound by AZ511). Camera 1257 at Broadway Rd returned AZ511's "no live feed" image on all
-eight days.*
 
 ![Periods each data set covers](docs/figures/data_timeline.png)
 
@@ -91,11 +87,23 @@ The pages use plain English for an ADOT reader, colour-blind-safe colours (Okabe
 queue, orange for slow, blue for free flow), ADOT blue for headings, and carry the 23 U.S.C. § 407
 notice.
 
-**Phase 2 (next).** Register each camera to the road (6–8 landmark clicks per view), measure vehicle
-density in the frames, place the queue tail between cameras with kinematic-wave bounds, and replace the
-straight-line forecast. That is where the cameras add what the speeds cannot: case B's site camera
-shows police holding the lanes at 05:55 while the INRIX segment it sits in, 0.75 km long, averages
-too fast to count as slow traffic.
+**What phase 1 does not do yet.** In this version the camera frames are pictures for a person to look
+at; every queue on the page comes from INRIX speeds. INRIX gives one average speed per segment, and a
+segment is 0.3–1.1 km long, so a short blockage can hide inside it. Case B shows this: at 05:55 camera
+785 shows police holding the lanes and traffic stopped, but the INRIX segment around it is 0.75 km long,
+traffic still moves on the rest of it, and its average speed is not low enough to be marked slow. The
+camera card says "free flow" while the frame shows stopped cars.
+
+**Phase 2 (next)** makes the cameras measure:
+
+1. **Map each camera view to the road.** Click 6–8 landmarks in a view (lane-line ends, gore points,
+   bridge edges) and match them on the map, so that every pixel has a position along I-10. Frames with
+   the same view reuse it; a view an operator has turned or zoomed needs its own.
+2. **Count vehicles in the frames** and turn the count into vehicles per km on the part of the road each
+   camera sees.
+3. **Place the queue tail between cameras.** Where no camera sees the road, traffic-wave theory bounds
+   how far the tail can have moved since the last camera saw it.
+4. **Replace the straight-line forecast** with one built on those measurements.
 
 ---
 
@@ -170,9 +178,14 @@ What the cases show, and what the article and the ADOT session can take from the
 Each storyboard is **one self-contained HTML file**: every camera frame is inside it, one a minute, so it
 opens offline on any computer with a browser.
 
-**To open one:** click its link, then **Download raw file** (the download icon at the top right of the
-file view), and double-click the downloaded file. GitHub does not show these files as pages and does
-not preview files this large.
+**To open one:**
+
+1. Click its link below. GitHub opens a page that says "Sorry about that, but we can't show files that
+   are this big right now". That is expected: GitHub does not show HTML files as web pages, and
+   **View raw** only shows the file's source text.
+2. Click the **download icon** (the arrow pointing down, to the right of **Raw** and the copy icon, at
+   the top right of the file view). The file is saved to your computer.
+3. Double-click the downloaded file. It opens in your browser and needs no internet connection.
 
 ### Main cases
 
