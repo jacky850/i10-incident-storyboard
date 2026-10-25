@@ -87,23 +87,52 @@ The pages use plain English for an ADOT reader, colour-blind-safe colours (Okabe
 queue, orange for slow, blue for free flow), ADOT blue for headings, and carry the 23 U.S.C. § 407
 notice.
 
-**What phase 1 does not do yet.** In this version the camera frames are pictures for a person to look
-at; every queue on the page comes from INRIX speeds. INRIX gives one average speed per segment, and a
-segment is 0.3–1.1 km long, so a short blockage can hide inside it. Case B shows this: at 05:55 camera
-785 shows police holding the lanes and traffic stopped, but the INRIX segment around it is 0.75 km long,
-traffic still moves on the rest of it, and its average speed is not low enough to be marked slow. The
-camera card says "free flow" while the frame shows stopped cars.
+**What phase 1 does not do yet.** Two things.
 
-**Phase 2 (next)** makes the cameras measure:
+- **The road is a chain of INRIX segments.** No other source uses INRIX's segment IDs: ERS records and
+  cameras are placed on it by distance alone, and the ramps are not on it at all, so case B's and case
+  D's exit-ramp closures can only be drawn as bars above the diagram.
+- **The cameras do not measure anything.** The frames are pictures for a person to look at; every queue
+  on the page comes from INRIX speeds. INRIX gives one average speed per segment, and a segment is
+  0.3–1.1 km long, so a short blockage can hide inside it. Case B shows this: at 05:55 camera 785 shows
+  police holding the lanes and traffic stopped, but the INRIX segment around it is 0.75 km long,
+  traffic still moves on the rest of it, and its average speed is not low enough to be marked slow. The
+  camera card says "free flow" while the frame shows stopped cars.
 
-1. **Map each camera view to the road.** Click 6–8 landmarks in a view (lane-line ends, gore points,
-   bridge edges) and match them on the map, so that every pixel has a position along I-10. Frames with
-   the same view reuse it; a view an operator has turned or zoomed needs its own.
-2. **Count vehicles in the frames** and turn the count into vehicles per km on the part of the road each
-   camera sees.
-3. **Place the queue tail between cameras.** Where no camera sees the road, traffic-wave theory bounds
+**Phase 2 (next)** puts every source on one road network and makes the cameras measure, in this order:
+
+1. **Build the road network from OpenStreetMap.** [osm2gmns](https://github.com/jiawlu/OSM2GMNS) turns
+   OpenStreetMap into a GMNS network of the I-10 stretch: directed links with IDs, lane counts and the
+   ramps. Each INRIX segment, ERS record and camera is placed on links as a link ID and a position along
+   it, with a match score. A match the rules cannot settle (the wrong direction, a ramp or the mainline)
+   is flagged, not guessed. The storyboard's road axis then becomes GMNS links, and a ramp closure sits
+   on its own ramp link.
+2. **Register each camera view to the links.** For the site and nearest cameras of cases A, B and E
+   (about 8 views), click 6–8 landmarks in a frame (lane-line ends, gore points, bridge edges) and the
+   same points on the map. A geometric fit gives the camera-to-road map: every pixel gets a link and a
+   position along it, and every link gets the share of its length the camera sees. Frames with the same
+   view reuse it; a view an operator has turned or zoomed needs its own. The minutes spent on each
+   camera are recorded, because that is what an agency would pay to repeat it.
+3. **Ask a vision-language model (VLM) multiple-choice questions.** The registered links are drawn on
+   the frame as numbered lines, with arrows for direction. The VLM answers only with a link number, yes,
+   no or "can't tell", never with a position:
+   - Is link 3, eastbound, queued in this frame?
+   - Which numbered link is the stopped traffic on?
+   - After an operator has moved the camera, which of these candidate overlays lies on the road?
+
+   Distances come from the geometric fit, not from the VLM, because current VLMs are poor at depth,
+   direction and counting. Each question covers one link and one direction. The answers are scored
+   against hand labels on the six cases before any is shown, and the page marks each camera reading as
+   checked by a person or answered by the VLM.
+
+With the cameras on the links, the rest follows:
+
+4. **Count vehicles** with an off-the-shelf detector and turn the count into vehicles per km on each
+   link a camera sees; with the INRIX speed this gives the flow. Case B's camera 785 would then read
+   "queued" from its own frame.
+5. **Place the queue tail between cameras.** Where no camera sees the road, traffic-wave theory bounds
    how far the tail can have moved since the last camera saw it.
-4. **Replace the straight-line forecast** with one built on those measurements.
+6. **Replace the straight-line forecast** with one built on those measurements.
 
 ---
 
@@ -232,6 +261,17 @@ python scripts/14_readme_figures.py     # the maps and the timeline in docs/figu
 python -m http.server 8512 --directory out/storyboard   # optional: browse the unpacked pages
 ```
 
+Phase 2 step 1 puts every source on a GMNS road network built from OpenStreetMap. osm2gmns 1.0 ships
+wheels for Python 3.8–3.12 only, so script 15 runs in its own environment; 16 and 17 need only the
+packages above.
+
+```bash
+python3.12 -m venv ~/.venvs/gmns && ~/.venvs/gmns/bin/pip install osm2gmns==1.0.1 pandas shapely
+~/.venvs/gmns/bin/python scripts/15_osm_network.py # downloads OSM once; data/network/node.csv, link.csv
+python scripts/16_place_sources.py          # I-10 path; XD segments, ERS events and cameras on links
+python scripts/17_gazetteer.py              # mileposts, exits, cross streets; ERS milepost check
+```
+
 `scripts/frame_viewer.py` is a local viewer for any camera at any minute, reading frames straight from
 the tars (`python scripts/frame_viewer.py`, then http://localhost:8511).
 
@@ -246,6 +286,10 @@ the tars (`python scripts/frame_viewer.py`, then http://localhost:8511).
 | `11` | Builds the storyboards |
 | `12` | Packs each storyboard into one self-contained HTML file |
 | `14` | Draws the README figures (basemap: Esri World Topographic Map) |
+| `15` | GMNS network of the study area from OpenStreetMap (ODbL) with osm2gmns |
+| `gmns.py` | Loads the network; walks the I-10 mainline path in each direction |
+| `16` | Places INRIX XD segments, ERS events and cameras on links, flagging what the rules cannot settle |
+| `17` | Gazetteer of mileposts, exits and cross streets; checks ERS milepost text against the event position |
 | `typical_days.py` | Same-weekday INRIX speeds for the usual-day travel time |
 
 ## Known limits
