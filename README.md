@@ -270,6 +270,7 @@ python3.12 -m venv ~/.venvs/gmns && ~/.venvs/gmns/bin/pip install osm2gmns==1.0.
 ~/.venvs/gmns/bin/python scripts/15_osm_network.py # downloads OSM once; data/network/node.csv, link.csv
 python scripts/16_place_sources.py          # I-10 path; XD segments, ERS events and cameras on links
 python scripts/17_gazetteer.py              # mileposts, exits, cross streets; ERS milepost check
+python scripts/18_network_map.py           # topology checks; out/network/network_map.html (+ .gpkg with geopandas)
 ```
 
 `scripts/frame_viewer.py` is a local viewer for any camera at any minute, reading frames straight from
@@ -290,6 +291,7 @@ the tars (`python scripts/frame_viewer.py`, then http://localhost:8511).
 | `gmns.py` | Loads the network; walks the I-10 mainline path in each direction |
 | `16` | Places INRIX XD segments, ERS events and cameras on links, flagging what the rules cannot settle |
 | `17` | Gazetteer of mileposts, exits and cross streets; checks ERS milepost text against the event position |
+| `18` | Topology checks and an interactive layer map of the network and everything placed on it (private: holds INRIX geometry) |
 | `typical_days.py` | Same-weekday INRIX speeds for the usual-day travel time |
 
 ## Known limits

@@ -1,0 +1,299 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>I-10 Network Check</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<style>
+  :root {
+    --adot: #003863; --ink: #1f2328; --muted: #5b6470; --line: #d9dde3; --bg: #ffffff; --panel: #f7f8fa;
+    --eb: #0072B2; --wb: #D55E00; --ok: #009E73; --flag: #CC79A7; --crash: #E69F00; --other: #56B4E9;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; font: 14px/1.4 -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; color: var(--ink); background: var(--bg); }
+  #app { display: flex; height: 100%; }
+  #panel { width: 330px; flex: none; overflow-y: auto; background: var(--panel); border-right: 1px solid var(--line); padding: 14px 16px 24px; }
+  #map { flex: 1; }
+  h1 { font-size: 18px; margin: 0 0 2px; color: var(--adot); }
+  .sub { color: var(--muted); font-size: 12px; margin-bottom: 12px; }
+  h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin: 16px 0 6px; }
+  label.row { display: flex; align-items: center; gap: 8px; padding: 3px 0; cursor: pointer; }
+  label.row .n { margin-left: auto; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+  .sw { width: 18px; height: 10px; border-radius: 2px; flex: none; }
+  .sw.dot { width: 10px; height: 10px; border-radius: 50%; margin: 0 4px; }
+  .indent { padding-left: 22px; }
+  .bm { display: flex; gap: 6px; }
+  .bm button, .cases button { flex: 1; padding: 5px 0; border: 1px solid var(--line); background: #fff; border-radius: 6px; cursor: pointer; font: inherit; font-size: 13px; }
+  .bm button.on { background: var(--adot); color: #fff; border-color: var(--adot); }
+  .cases { display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px; }
+  .cases button { font-weight: 600; }
+  #q { width: 100%; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; font: inherit; }
+  #hits { margin-top: 4px; }
+  .hit, .prob { padding: 4px 6px; border-radius: 4px; cursor: pointer; font-size: 13px; }
+  .hit:hover, .prob:hover { background: #e8eef5; }
+  .cat { font-weight: 600; font-size: 12px; margin: 8px 0 2px; color: var(--adot); }
+  .note { font-size: 11px; color: var(--muted); margin-top: 18px; border-top: 1px solid var(--line); padding-top: 8px; }
+  .leaflet-popup-content { margin: 10px 12px; font-size: 13px; min-width: 220px; }
+  .pop h3 { margin: 0 0 6px; font-size: 14px; color: var(--adot); }
+  .pop table { border-collapse: collapse; }
+  .pop td { padding: 1px 8px 1px 0; vertical-align: top; }
+  .pop td:first-child { color: var(--muted); white-space: nowrap; }
+  .pop .flag { color: #a3266f; font-weight: 600; }
+  .arrow { color: #222; font-size: 12px; line-height: 12px; text-align: center; text-shadow: 0 0 2px #fff, 0 0 2px #fff; }
+  .sat .arrow { color: #fff; text-shadow: 0 0 2px #000, 0 0 2px #000; }
+  .mplab { font-size: 10px; color: #0b5f8a; font-weight: 600; white-space: nowrap; text-shadow: 0 0 2px #fff, 0 0 2px #fff; }
+  #toggle { display: none; }
+  @media (max-width: 760px) {
+    #app { flex-direction: column; }
+    #panel { width: 100%; height: 45%; border-right: none; border-bottom: 1px solid var(--line); }
+    #panel.hide { display: none; }
+    #toggle { display: block; position: absolute; z-index: 1000; top: 10px; right: 10px; padding: 6px 10px; background: #fff; border: 1px solid var(--line); border-radius: 6px; }
+  }
+</style>
+</head>
+<body>
+<button id="toggle">Layers</button>
+<div id="app">
+  <aside id="panel">
+    <h1>I-10 network check</h1>
+    <div class="sub">GMNS links from OpenStreetMap, with INRIX segments, ERS events, cameras and the gazetteer placed on them</div>
+
+    <h2>Base map</h2>
+    <div class="bm" id="bm"></div>
+
+    <h2>Layers</h2>
+    <div id="layers"></div>
+
+    <h2>Find</h2>
+    <input id="q" placeholder="link, node, XD, ERS or camera ID">
+    <div id="hits"></div>
+
+    <h2>Cases</h2>
+    <div class="cases" id="cases"></div>
+
+    <h2>To check</h2>
+    <div id="probs"></div>
+
+    <div class="note">Private. Road network © OpenStreetMap contributors (ODbL). INRIX segment geometry and IDs are licensed. Events: AZ511 ERS. Camera images are not included.</div>
+  </aside>
+  <div id="map"></div>
+</div>
+<script>
+const D = /*__DATA__*/null;
+const C = { eb: "#0072B2", wb: "#D55E00", ok: "#009E73", flag: "#CC79A7", crash: "#E69F00", other: "#56B4E9", main: "#4d4d4d", ramp: "#a0a0a0", cam: "#6b3fa0", mp: "#56B4E9", cs: "#B36B00" };
+const map = L.map("map", { preferCanvas: true, zoomControl: true }).setView([33.43, -112.1], 11);
+const canvas = L.canvas({ padding: 0.5, tolerance: 6 });
+
+const BASE = {
+  Light: L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}", { maxZoom: 20, maxNativeZoom: 16, attribution: "Base map © Esri" }),
+  Satellite: L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}", { maxZoom: 20, maxNativeZoom: 19, attribution: "Imagery © Esri" }),
+  OSM: L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 20, maxNativeZoom: 19, attribution: "© OpenStreetMap contributors" }),
+};
+let base = BASE.Light.addTo(map);
+const bm = document.getElementById("bm");
+for (const k of Object.keys(BASE)) {
+  const b = document.createElement("button"); b.textContent = k; if (k === "Light") b.className = "on";
+  b.onclick = () => { map.removeLayer(base); base = BASE[k].addTo(map); base.bringToBack(); [...bm.children].forEach(x => x.classList.toggle("on", x === b)); restyle(k === "Satellite"); };
+  bm.appendChild(b);
+}
+
+const row = (k, v) => v === "" || v === null || v === undefined ? "" : `<tr><td>${k}</td><td>${v}</td></tr>`;
+const pop = (title, rows, flag) => `<div class="pop"><h3>${title}</h3>${flag ? `<div class="flag">${flag}</div>` : ""}<table>${rows.join("")}</table></div>`;
+const dirName = d => d === "E" ? "EB" : d === "W" ? "WB" : d;
+const index = {};   // layer -> id -> leaflet object
+const reg = (layer, id, obj) => ((index[layer] ||= {})[String(id)] = obj);
+let selected = null;
+function select(obj) {
+  if (selected && selected._base) selected.setStyle(selected._base);
+  selected = obj;
+  if (obj.setStyle) { obj._base ||= { ...obj.options }; obj.setStyle({ weight: (obj._base.weight || 3) + 4, color: "#000", opacity: 1 }); obj.bringToFront && obj.bringToFront(); }
+}
+
+// ---- layers ----
+const G = {};
+G.ramps = L.layerGroup(); G.main = L.layerGroup(); G.pathE = L.layerGroup(); G.pathW = L.layerGroup();
+G.nodes = L.layerGroup(); G.junctions = L.layerGroup(); G.arrows = L.layerGroup();
+G.xdOk = L.layerGroup(); G.xdFlag = L.layerGroup(); G.ers = L.layerGroup(); G.mpcheck = L.layerGroup();
+G.cams = L.layerGroup(); G.mp = L.layerGroup(); G.exits = L.layerGroup(); G.cross = L.layerGroup();
+G.problems = L.layerGroup();
+
+for (const p of ["E", "W"]) {
+  const P = D.paths[p];
+  L.polyline(P.c, { renderer: canvas, color: p === "E" ? C.eb : C.wb, weight: 7, opacity: 0.35, interactive: false }).addTo(p === "E" ? G.pathE : G.pathW);
+}
+
+for (const l of D.links) {
+  const ramp = l.hw.endsWith("_link");
+  const style = ramp ? { color: C.ramp, weight: 2 } : { color: C.main, weight: 1.5 + 0.45 * (l.ln || 1) };
+  const pl = L.polyline(l.c, { renderer: canvas, ...style });
+  pl._ramp = ramp;
+  pl.bindPopup(() => pop(`Link ${l.id}`, [
+    row("type", l.hw + (l.ref ? ` · ${l.ref}` : "")), row("lanes", l.ln ?? "missing in OSM"), row("length", `${l.len} m`),
+    row("I-10 path", l.path ? `${dirName(l.path)}, starts at km ${l.km}` : ""), row("exit", l.jref), row("to", l.dest),
+    row("nodes", `${l.from} → ${l.to}`), row("XD on it", l.xd.join(", ")),
+    row("OSM way", `<a href="https://www.openstreetmap.org/way/${l.way}" target="_blank">${l.way}</a>`)]));
+  pl.on("click", () => select(pl));
+  pl.addTo(ramp ? G.ramps : G.main); reg("links", l.id, pl);
+}
+
+const nodeById = {};
+for (const n of D.nodes) {
+  nodeById[n.id] = n;
+  const m = n.jn
+    ? L.circleMarker(n.c, { renderer: canvas, radius: 4, color: "#000", weight: 1, fillColor: "#000", fillOpacity: 1 })
+    : L.circleMarker(n.c, { renderer: canvas, radius: 2.5, color: "#555", weight: 1, fillColor: "#fff", fillOpacity: 1 });
+  m.bindPopup(pop(`Node ${n.id}`, [row("kind", n.jn ? "exit gore (motorway_junction)" : "node"), row("exit ref", n.ref),
+    row("OSM node", `<a href="https://www.openstreetmap.org/node/${n.osm}" target="_blank">${n.osm}</a>`)]));
+  m.addTo(n.jn ? G.junctions : G.nodes); reg("nodes", n.id, m);
+}
+
+for (const x of D.xd) {
+  const flag = x.st === "flag", col = flag ? C.flag : C.ok;
+  const pl = L.polyline(x.c, { renderer: canvas, color: col, weight: 3, dashArray: "6 5", opacity: 0.9 });
+  pl.bindPopup(pop(`INRIX XD ${x.id}`, [row("direction", dirName(x.dir)), row("INRIX name", x.name), row("INRIX length", `${x.len} m`),
+    row("on I-10 path", `km ${x.km[0]} – ${x.km[1]}`), row("length ratio", x.ratio), row("end offsets", `${x.off[0]} m, ${x.off[1]} m`),
+    row("links", x.links.join(", "))], flag ? x.note : ""));
+  pl.on("click", () => select(pl));
+  pl.addTo(flag ? G.xdFlag : G.xdOk); reg("xd", x.id, pl);
+}
+
+for (const e of D.ers) {
+  const crash = /crash/i.test(e.type || ""), flag = e.st === "flag" || e.suspect;
+  const m = L.circleMarker(e.c, { renderer: canvas, radius: 6, color: flag ? "#a3266f" : "#222", weight: flag ? 3 : 1, fillColor: crash ? C.crash : C.other, fillOpacity: 0.95 });
+  m.bindPopup(pop(`ERS ${e.id}`, [row("record", e.desc), row("type", e.type), row("seen", `${e.first} – ${e.last.slice(11)}`),
+    row("placed on", `${e.kind} link ${e.link} (${e.off} m away)`), row("I-10 path", `${dirName(e.dir)} km ${e.km}`),
+    row("milepost", e.mp !== undefined ? `text MP ${e.mp}; event at MP ${e.mpev}; centre of MP ${e.mp} is ${Math.abs(e.err).toFixed(0)} m ${e.err > 0 ? "downstream" : "upstream"}` : ""),
+    row("in between", e.between)], [e.note, e.suspect ? "milepost text far from the event" : ""].filter(Boolean).join("; ")));
+  m.addTo(G.ers); reg("ers", e.id, m);
+  if (e.mpc) {
+    const ln = L.polyline([e.c, e.mpc], { renderer: canvas, color: e.wrong ? "#c0392b" : "#888", weight: 2, dashArray: "3 4" });
+    ln.bindPopup(pop(`ERS ${e.id}: MP ${e.mp}`, [row("event at", `MP ${e.mpev}`), row("MP centre", `${Math.abs(e.err).toFixed(0)} m away`), row("in between", e.between || "nothing")]));
+    ln.addTo(G.mpcheck);
+    L.circleMarker(e.mpc, { renderer: canvas, radius: 3, color: e.wrong ? "#c0392b" : "#888", fillOpacity: 1 }).addTo(G.mpcheck);
+  }
+}
+
+const camIcon = L.divIcon({ className: "", html: `<svg width="18" height="14" viewBox="0 0 18 14"><rect x="1" y="3" width="12" height="9" rx="2" fill="${C.cam}" stroke="#fff"/><path d="M13 6 L17 4 V11 L13 9 Z" fill="${C.cam}" stroke="#fff"/></svg>`, iconSize: [18, 14], iconAnchor: [9, 7] });
+for (const c of D.cams) {
+  const m = L.marker(c.c, { icon: camIcon });
+  const near = ["E", "W"].map(d => c.near[d] ? `${dirName(d)}: link ${c.near[d].link}, ${c.near[d].off} m, km ${c.near[d].km}` : "").join("<br>");
+  m.bindPopup(pop(`Camera ${c.id} · view ${c.view}`, [row("location", c.loc), row("view", `${c.vdir} MP ${c.mp.toFixed(2)}`), row("nearest mainline", near), row("ramps ≤150 m", c.ramps.replaceAll(";", ", "))]));
+  m.bindTooltip(`${c.id}`, { direction: "top", offset: [0, -6] });
+  m.addTo(G.cams); reg("cams", c.id, m);
+}
+
+for (const g of D.gaz) {
+  let m;
+  if (g.t === "milepost") {
+    m = L.circleMarker(g.c, { renderer: canvas, radius: 4, color: C.mp, weight: 2, fillColor: "#fff", fillOpacity: 1 });
+    m.addTo(G.mp);
+    if (g.dir === "E") L.marker(g.c, { icon: L.divIcon({ className: "mplab", html: g.label, iconSize: [50, 12], iconAnchor: [-6, 6] }), interactive: false }).addTo(G.mp);
+  } else if (g.t === "exit") {
+    m = L.marker(g.c, { icon: L.divIcon({ className: "", html: `<svg width="12" height="11"><path d="M6 0 L12 11 H0 Z" fill="#111" stroke="#fff"/></svg>`, iconSize: [12, 11], iconAnchor: [6, 6] }) });
+    m.addTo(G.exits);
+  } else {
+    m = L.circleMarker(g.c, { renderer: canvas, radius: 3.5, color: C.cs, weight: 2, fillColor: C.cs, fillOpacity: 1 });
+    m.addTo(G.cross);
+  }
+  m.bindTooltip(`${g.label} · ${dirName(g.dir)} km ${g.km}`);
+}
+
+// brighter links on the satellite image
+function restyle(sat) {
+  document.getElementById("map").classList.toggle("sat", sat);
+  for (const pl of Object.values(index.links)) {
+    const color = pl._ramp ? (sat ? "#ffd54f" : C.ramp) : (sat ? "#ffffff" : C.main);
+    pl._base = { ...pl.options, color };
+    if (pl !== selected) pl.setStyle({ color });
+  }
+}
+
+// direction arrows, drawn only when zoomed in
+function drawArrows() {
+  G.arrows.clearLayers();
+  if (map.getZoom() < 16 || !map.hasLayer(G.arrows)) return;
+  const b = map.getBounds().pad(0.1);
+  for (const l of D.links) {
+    const k = Math.floor(l.c.length / 2), a = l.c[Math.max(k - 1, 0)], z = l.c[Math.min(k, l.c.length - 1)];
+    const mid = l.c.length > 2 ? l.c[k] : [(l.c[0][0] + l.c[1][0]) / 2, (l.c[0][1] + l.c[1][1]) / 2];
+    if (!b.contains(mid)) continue;
+    const p1 = map.latLngToLayerPoint(a), p2 = map.latLngToLayerPoint(z);
+    const deg = Math.atan2(p2.y - p1.y, p2.x - p1.x) * 180 / Math.PI;
+    L.marker(mid, { interactive: false, icon: L.divIcon({ className: "arrow", html: `<div style="transform:rotate(${deg}deg)">➤</div>`, iconSize: [12, 12], iconAnchor: [6, 6] }) }).addTo(G.arrows);
+  }
+}
+map.on("zoomend moveend", drawArrows);
+
+// ---- layer panel ----
+const LAYERS = [
+  ["GMNS mainline links", G.main, C.main, D.links.filter(l => !l.hw.endsWith("_link")).length, true],
+  ["GMNS ramps", G.ramps, C.ramp, D.links.filter(l => l.hw.endsWith("_link")).length, true],
+  ["Direction arrows (zoom ≥ 16)", G.arrows, "#333", "", true],
+  ["GMNS nodes", G.nodes, "#888", D.nodes.filter(n => !n.jn).length, false, "dot"],
+  ["Exit gore nodes", G.junctions, "#000", D.nodes.filter(n => n.jn).length, false, "dot"],
+  [`I-10 EB path (${D.paths.E.km} km)`, G.pathE, C.eb, D.paths.E.n, true],
+  [`I-10 WB path (${D.paths.W.km} km)`, G.pathW, C.wb, D.paths.W.n, true],
+  ["INRIX XD: matched", G.xdOk, C.ok, D.xd.filter(x => x.st !== "flag").length, false],
+  ["INRIX XD: flagged", G.xdFlag, C.flag, D.xd.filter(x => x.st === "flag").length, true],
+  ["ERS events", G.ers, C.crash, D.ers.length, true, "dot"],
+  ["ERS milepost check (red: crosses a street)", G.mpcheck, "#c0392b", D.ers.filter(e => e.mpc).length, false],
+  ["Cameras", G.cams, C.cam, D.cams.length, true, "dot"],
+  ["Mileposts", G.mp, C.mp, D.gaz.filter(g => g.t === "milepost").length, false, "dot"],
+  ["Exits", G.exits, "#111", D.gaz.filter(g => g.t === "exit").length, false, "dot"],
+  ["Cross streets", G.cross, C.cs, D.gaz.filter(g => g.t === "cross_street").length, false, "dot"],
+];
+const lp = document.getElementById("layers");
+for (const [name, grp, col, n, on, shape] of LAYERS) {
+  const lab = document.createElement("label"); lab.className = "row";
+  lab.innerHTML = `<input type="checkbox" ${on ? "checked" : ""}><span class="sw ${shape || ""}" style="background:${col}"></span>${name}<span class="n">${n}</span>`;
+  const cb = lab.querySelector("input");
+  cb.onchange = () => { cb.checked ? grp.addTo(map) : map.removeLayer(grp); if (grp === G.arrows) drawArrows(); };
+  if (on) grp.addTo(map);
+  lp.appendChild(lab);
+}
+G.problems.addTo(map);
+
+// ---- find ----
+const KINDS = [["links", "Link"], ["xd", "INRIX XD"], ["ers", "ERS"], ["cams", "Camera"], ["nodes", "Node"]];
+const GROUP_OF = { links: id => D.links.find(l => l.id == id)?.hw.endsWith("_link") ? G.ramps : G.main, xd: id => D.xd.find(x => x.id == id)?.st === "flag" ? G.xdFlag : G.xdOk,
+  ers: () => G.ers, cams: () => G.cams, nodes: id => nodeById[id]?.jn ? G.junctions : G.nodes };
+function go(layer, id) {
+  const obj = index[layer]?.[String(id)]; if (!obj) return;
+  const grp = GROUP_OF[layer](id); if (!map.hasLayer(grp)) { grp.addTo(map); syncBoxes(); }
+  if (obj.getBounds) map.fitBounds(obj.getBounds(), { maxZoom: 17, padding: [60, 60] }); else map.setView(obj.getLatLng(), 17);
+  setTimeout(() => { select(obj); obj.openPopup(obj.getBounds ? obj.getBounds().getCenter() : undefined); }, 350);
+}
+function syncBoxes() { [...lp.querySelectorAll("input")].forEach((cb, i) => cb.checked = map.hasLayer(LAYERS[i][1])); }
+document.getElementById("q").addEventListener("input", ev => {
+  const q = ev.target.value.trim(), hits = document.getElementById("hits"); hits.innerHTML = "";
+  if (!q) return;
+  for (const [layer, label] of KINDS) if (index[layer]?.[q]) {
+    const d = document.createElement("div"); d.className = "hit"; d.textContent = `${label} ${q}`; d.onclick = () => go(layer, q); hits.appendChild(d);
+  }
+  if (!hits.children.length) hits.innerHTML = `<div class="sub">No object with ID ${q}</div>`;
+});
+
+// ---- cases ----
+const cp = document.getElementById("cases");
+for (const c of D.cases) {
+  const b = document.createElement("button"); b.textContent = c.id; b.title = c.title;
+  b.onclick = () => { map.setView(c.c, 16); G.problems.clearLayers(); L.circleMarker(c.c, { radius: 18, color: "#000", weight: 2, fill: false, dashArray: "4 3", interactive: false }).bindTooltip(c.title, { permanent: true, direction: "top", offset: [0, -16] }).addTo(G.problems); };
+  cp.appendChild(b);
+}
+
+// ---- problems ----
+const pp = document.getElementById("probs"), byCat = {};
+for (const p of D.problems) (byCat[p.cat] ||= []).push(p);
+if (!D.problems.length) pp.innerHTML = `<div class="sub">Nothing flagged.</div>`;
+for (const [cat, items] of Object.entries(byCat)) {
+  const h = document.createElement("div"); h.className = "cat"; h.textContent = `${cat} (${items.length})`; pp.appendChild(h);
+  for (const p of items) { const d = document.createElement("div"); d.className = "prob"; d.textContent = p.text; d.onclick = () => go(p.layer, p.id); pp.appendChild(d); }
+}
+
+map.fitBounds(L.latLngBounds(D.paths.E.c));
+document.getElementById("toggle").onclick = () => document.getElementById("panel").classList.toggle("hide");
+</script>
+</body>
+</html>

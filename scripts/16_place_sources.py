@@ -134,7 +134,7 @@ def place_cameras(link, paths):
         for d, p in paths.items():
             pm, off, lid, s = p.locate(c.lon, c.lat)
             rows.append({"camera_id": c.camera_id, "view_id": c.view_id, "location": c.location,
-                         "view_dir": c.view_dir, "view_mp": c.view_mp, "dir": d, "link_id": lid,
+                         "lat": c.lat, "lon": c.lon, "view_dir": c.view_dir, "view_mp": c.view_mp, "dir": d, "link_id": lid,
                          "s_on_link_m": round(s, 1), "path_m": round(pm, 1), "offset_m": round(off, 1),
                          "ramps_within_150m": ";".join(ramps[:6])})
     return pd.DataFrame(rows)
