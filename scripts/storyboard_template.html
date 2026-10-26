@@ -412,6 +412,17 @@ function renderTS() {
     ctx.fillStyle = css("--ink"); ctx.fillText(`${c.id} ${c.dead ? "(no feed)" : ""}`, w - M.r + 4, y);
   });
   drawClosureLines(ctx, xi, M.t, TS_H - M.b);
+  // GMNS link ends along the road axis: short ticks at the left edge of the plot
+  ctx.strokeStyle = css("--muted");
+  (D.links || []).forEach(([a]) => { if (a < D.s_range[0] || a > D.s_range[1]) return; const y = g.y(a); ctx.beginPath(); ctx.moveTo(M.l, y); ctx.lineTo(M.l + 5, y); ctx.stroke(); });
+  // a ramp closure, drawn at the gore of its ramp link
+  D.closures.filter((p) => p.ramp && p.ramp.s_km != null).forEach((p) => {
+    const y = g.y(p.ramp.s_km), x0 = xi(tIndex(p.t0)), x1 = Math.max(x0 + 3, xi(tIndex(p.t1)));
+    ctx.fillStyle = CLOSURE.ramp.colour; ctx.fillRect(x0, y - 3, x1 - x0, 6);
+    ctx.strokeStyle = "#000"; ctx.lineWidth = 0.8; ctx.strokeRect(x0, y - 3, x1 - x0, 6); ctx.lineWidth = 1;
+    ctx.font = "bold 11px system-ui"; ctx.textAlign = "left"; ctx.textBaseline = "bottom"; ctx.fillStyle = "#000";
+    ctx.fillText(`${p.ramp.exit} ramp closed (GMNS link ${p.ramp.link})`, x0 + 4, y - 5);
+  });
   ctx.font = "11px system-ui"; ctx.textBaseline = "middle"; ctx.textAlign = "left";
   KINDS.forEach((kind, row) => {
     const y = 18 + 16 * row, cfg = CLOSURE[kind];
@@ -525,10 +536,18 @@ function renderTT() {
     free flow ${tt.free_flow.toFixed(1)} min` + (extra >= 0.5 ? ` · <span class="up">+${extra.toFixed(1)} min</span>` : "");
 }
 
+function rampNote(r) {
+  if (!r) return "";
+  const at = r.link ? ` on GMNS link ${r.link}, ${r.exit}, drawn at its gore (${r.how})` : "";
+  const near = r.near_coordinate ? `; the record's coordinate is ${r.near_coordinate.dist_m} m from ramp link ${r.near_coordinate.link}` +
+    (r.near_coordinate.to ? ` (to ${r.near_coordinate.to})` : "") + ", so check the ramp on camera" : "";
+  return at + near;
+}
 function closureLegend() {
-  $("#closureLegend").innerHTML = D.closures.length ? "Records: " + D.closures.map((p) =>
-    `<span><i style="background:${CLOSURE[p.kind].colour}"></i>${p.label} ${span(p)} (${p.source})</span>`).join(" ")
-    : "Records name no lane or ramp closure in this window.";
+  $("#closureLegend").innerHTML = (D.closures.length ? "Records: " + D.closures.map((p) =>
+    `<span><i style="background:${CLOSURE[p.kind].colour}"></i>${p.label} ${span(p)} (${p.source})${rampNote(p.ramp)}</span>`).join(" ")
+    : "Records name no lane or ramp closure in this window.") +
+    ` <span>Road axis: km along the I-10 GMNS links built from OpenStreetMap; ticks at the left edge mark where each link ends.</span>`;
   const tt = D.travel_time;
   $("#ttlegend").innerHTML = `<span><span class="swatch" style="border-color:#d55e00"></span>this ${tt.weekday}</span>
     <span><span class="swatch" style="border-color:#0072b2;border-top-style:dashed"></span>usual ${tt.weekday}: median of ${tt.n_days} other ${tt.weekday}s, Aug–Sep 2026</span>

@@ -18,6 +18,11 @@ forecast use the slowdown; the queue length is reported beside it. The live fore
 only slowdown lengths up to t: a straight-line fit over the last FIT_MIN minutes, extended 5, 15 and
 30 min, with a band that widens with the horizon. It is scored against the length observed later.
 
+The road axis is the I-10 mainline path on the GMNS network of 15-16 (km along the path in the
+direction of travel); each XD segment occupies its matched interval on it, cameras and records sit
+where their coordinates project, and the diagram marks where each GMNS link ends. A ramp closure is
+drawn at the gore of the ramp link it names (ramp_link).
+
 Usage: python scripts/11_build_storyboard.py [case id ...]
 """
 import io
@@ -33,7 +38,8 @@ from PIL import Image
 
 sys.path.insert(0, str(Path(__file__).parent))
 import typical_days  # noqa: E402
-from corridor import load_chains, locate  # noqa: E402
+from corridor import load_chains  # noqa: E402
+from gmns import NET, build_paths, load_network  # noqa: E402
 from paths import CAMS, DATA, INRIX_INC, INRIX_SPEED, OUT, REPO  # noqa: E402
 from tarindex import FrameStore  # noqa: E402
 
@@ -66,6 +72,66 @@ MOVE_CORR = 0.5
 DEAD_CAMERAS = {"1257"}
 KM_PER_MI = 1.609344
 TEMPLATE = Path(__file__).parent / "storyboard_template.html"
+PATHS = {}                 # I-10 mainline path per direction on the GMNS network, set in main()
+PATH_LINKS = {}            # its links, with path_from_m / path_to_m
+
+
+def gmns_axis(chains):
+    """Put the INRIX chains on the GMNS road axis: s0_km, s1_km become each XD segment's interval on the
+    I-10 path of 16_place_sources.py, so cameras, records and speeds share the network's distance."""
+    link, _ = load_network()
+    paths, _ = build_paths(link)
+    PATHS.update(paths)
+    PATH_LINKS.update({d: p.links for d, p in paths.items()})
+    xd = pd.read_csv(NET / "xd_to_link.csv").drop_duplicates("xd").set_index("xd")
+    out = {}
+    for d, ch in chains.items():
+        ch = ch.copy()
+        ch["s0_km"], ch["s1_km"] = ch.xd.map(xd.path_from_m) / 1000, ch.xd.map(xd.path_to_m) / 1000
+        out[d] = ch
+    return out
+
+
+def locate(chain, lat, lon):
+    """(GMNS link, km along the I-10 path, offset m) of a point, on the path of the chain's direction."""
+    pm, off, lid, _ = PATHS[chain.dir.iloc[0]].locate(lon, lat)
+    return lid, pm / 1000, off
+
+
+def norm_street(text):
+    t = re.sub(r"\b(n|s|e|w)\b\.?", " ", text.lower())
+    for a, b in (("st", "street"), ("dr", "drive"), ("rd", "road"), ("ave", "avenue"), ("blvd", "boulevard"), ("pkwy", "parkway")):
+        t = re.sub(rf"\b{a}\b\.?", b, t)
+    return " ".join(t.split())
+
+
+def ramp_link(case, s_inc):
+    """The ramp a ramp-closure record means: the exit in the case's direction whose name matches the
+    street the record is "near", nearest the incident. Also the ramp nearest the record's coordinate,
+    which can differ: ERS coordinates sit on the mainline or at an entrance merge."""
+    d = case["direction"][0]
+    m = re.search(r"near (.+?)(?: \(MP|;|$)", case["record"]["text"], re.I)
+    street = norm_street(m.group(1)) if m else ""
+    gaz = pd.read_csv(NET / "gazetteer.csv")
+    ex = gaz[(gaz.ref_type == "exit") & (gaz.dir == d)].copy()
+    ex = ex[ex.label.map(norm_street).str.contains(re.escape(street))] if street else ex.iloc[:0]
+    link = pd.read_csv(NET / "link.csv").set_index("link_id")
+    out = None
+    if len(ex):
+        e = ex.iloc[(ex.path_m / 1000 - s_inc).abs().argsort()].iloc[0]
+        lid = int(e.source.split()[-1])
+        out = {"link": lid, "exit": e.label, "s_km": round(e.path_m / 1000, 3), "how": f"exit named like the record's street ({m.group(1)})"}
+    ers_id = next(iter(re.findall(r"\d{6,}", str(case["record"].get("ers") or ""))), None)
+    if ers_id:
+        r = pd.read_csv(NET / "ers_to_link.csv").set_index("ers_id").loc[int(ers_id)]
+        cands = [(int(r.link_id), r.offset_m)] if r.kind == "ramp" else []
+        cands += [(int(a), float(b[:-1])) for a, b in (x.split(":") for x in str(r.alternatives).split(";") if ":" in x)]
+        ramp = next(((lid, dist) for lid, dist in cands if str(link.at[lid, "highway"]).endswith("_link")), None)
+        if ramp and (out is None or ramp[0] != out["link"]):
+            dest = link.at[ramp[0], "destination"]
+            alt = {"link": ramp[0], "dist_m": round(ramp[1]), "to": "" if pd.isna(dest) else dest.replace(";", " / ")}
+            out = (out or {"link": None}) | {"near_coordinate": alt}
+    return out
 
 
 def cases():
@@ -490,6 +556,12 @@ def build(case, chains, speed, cams_all, manifest, store):
 
     records = nearby_records(case, chain, s_inc, t0, t1)
     closures = closure_phases(case, t0, t1)
+    ramp = ramp_link(case, s_inc) if any(p["kind"] == "ramp" for p in closures) else None
+    for p in closures:
+        if p["kind"] == "ramp" and ramp:
+            p["ramp"] = ramp
+    pl = PATH_LINKS[d]
+    axis_links = pl[(pl.path_to_m / 1000 > s_lo) & (pl.path_from_m / 1000 < s_hi)]
     tt = travel_times(case["id"], seg, times, t0.normalize())
     first_move = min((m for c in cams for m in c["ptz_moves"] if m >= f"{start - pd.Timedelta(minutes=20):%Y-%m-%dT%H:%M}"),
                      default=None)
@@ -501,6 +573,9 @@ def build(case, chains, speed, cams_all, manifest, store):
         "start": f"{start:%Y-%m-%dT%H:%M}",
         "s_inc": round(s_inc, 3), "s_range": [round(s_lo, 3), round(s_hi, 3)],
         "segments": [[round(a, 3), round(b, 3)] for a, b in zip(seg.s0_km, seg.s1_km)],
+        "xd": [str(x) for x in seg.xd],
+        "links": [[round(r.path_from_m / 1000, 3), round(r.path_to_m / 1000, 3), int(r.link_id),
+                   None if pd.isna(r.lanes) else int(r.lanes)] for r in axis_links.itertuples()],
         "times": [f"{t:%Y-%m-%dT%H:%M}" for t in times],
         "grid": [[None if pd.isna(v) else round(float(v), 2) for v in row] for row in grid.to_numpy()],
         "head": [None if np.isnan(v) else round(float(v), 3) for v in head],
@@ -524,6 +599,9 @@ def build(case, chains, speed, cams_all, manifest, store):
     n = sum(len(c["frames"]) for c in cams)
     jumps = int(np.sum(np.abs(np.diff(np.nan_to_num(tail, nan=s_inc))) > 0.05))
     extra = np.array(tt["event"]) - np.array(tt["median"])
+    if ramp:
+        print(f"{case['id']}: ramp closure on link {ramp.get('link')} ({ramp.get('exit')}); "
+              f"ramp nearest the record's coordinate: {ramp.get('near_coordinate')}")
     print(f"{case['id']}: closures {[(p['kind'], p['t0'][11:], p['t1'][11:]) for p in closures]}, "
           f"travel time over {tt['km']} km: usual {tt['weekday']} median {min(tt['median'])}-{max(tt['median'])} min, "
           f"largest extra {extra.max():.1f} min at {times[int(extra.argmax())]:%H:%M}")
@@ -549,7 +627,7 @@ def index_page(built):
 
 
 def main(ids):
-    chains = load_chains(INRIX_SPEED / "metadata.csv")
+    chains = gmns_axis(load_chains(INRIX_SPEED / "metadata.csv"))
     speed = pd.read_parquet(DATA / "speed_0909_0917.parquet")
     speed["ratio"] = speed.speed_kmh / speed.hist_kmh
     cams_all = pd.read_csv(CAMS, dtype={"ID": str})

@@ -61,7 +61,7 @@ follows the order of the TSMO playbook: onset, propagation, diversion, action, o
 
 | Part of the page | What it shows | Why it is there |
 |---|---|---|
-| **One time axis, one road axis** | All sources on minutes of local time and on distance from the incident along the direction of travel | Speeds, records and frames can only be compared once they share both axes |
+| **One time axis, one road axis** | All sources on minutes of local time and on distance from the incident along the direction of travel, measured on the I-10 GMNS links | Speeds, records and frames can only be compared once they share both axes |
 | **Operator line** | A one-sentence message, e.g. "Queue about 0.8 mi, slow traffic 1.5 mi in all, growing about 5 mph", with 5, 15 and 30 min forecasts and the proposed Tier 1 warning | It uses only data available at that minute, so it shows what a TOC could have known live, not after the fact |
 | **Cameras, downstream to upstream** | Each camera's frame at that minute, its role (downstream, site, upstream), its border colour (queue, slow, free), when the queue reached it and left, and a tag when an operator has just moved it | A queue grows upstream; reading the cameras in that order shows it spread and clear. Downstream cameras show the road past the incident was not affected |
 | **Time-distance diagram** | Speed against the usual speed for every segment and minute, with the tail of the queue (solid), the tail of slow traffic (dashed), the head (dotted), the forecast range, the incident (✕), secondary crashes (smaller ✕), and the closure periods named in the records | The whole event in one picture, and the place the frames and the speeds can be checked against each other |
@@ -87,11 +87,10 @@ The pages use plain English for an ADOT reader, colour-blind-safe colours (Okabe
 queue, orange for slow, blue for free flow), ADOT blue for headings, and carry the 23 U.S.C. § 407
 notice.
 
-**What phase 1 does not do yet.** Two things.
+**What phase 1 did not do.** Two things.
 
-- **The road is a chain of INRIX segments.** No other source uses INRIX's segment IDs: ERS records and
-  cameras are placed on it by distance alone, and the ramps are not on it at all, so case B's and case
-  D's exit-ramp closures can only be drawn as bars above the diagram.
+- **The road was a chain of INRIX segments.** No other source uses INRIX's segment IDs, and the ramps
+  were not on it. Step 1 of phase 2 (below) has fixed this.
 - **The cameras do not measure anything.** The frames are pictures for a person to look at; every queue
   on the page comes from INRIX speeds. INRIX gives one average speed per segment, and a segment is
   0.3–1.1 km long, so a short blockage can hide inside it. Case B shows this: at 05:55 camera 785 shows
@@ -99,14 +98,18 @@ notice.
   traffic still moves on the rest of it, and its average speed is not low enough to be marked slow. The
   camera card says "free flow" while the frame shows stopped cars.
 
-**Phase 2 (next)** puts every source on one road network and makes the cameras measure, in this order:
+**Phase 2** puts every source on one road network and makes the cameras measure, in this order:
 
-1. **Build the road network from OpenStreetMap.** [osm2gmns](https://github.com/jiawlu/OSM2GMNS) turns
-   OpenStreetMap into a GMNS network of the I-10 stretch: directed links with IDs, lane counts and the
-   ramps. Each INRIX segment, ERS record and camera is placed on links as a link ID and a position along
-   it, with a match score. A match the rules cannot settle (the wrong direction, a ramp or the mainline)
-   is flagged, not guessed. The storyboard's road axis then becomes GMNS links, and a ramp closure sits
-   on its own ramp link.
+1. **Build the road network from OpenStreetMap (done).** [osm2gmns](https://github.com/jiawlu/OSM2GMNS)
+   turns OpenStreetMap into a GMNS network of the I-10 stretch: directed links with IDs, lane counts and
+   the ramps. Each INRIX segment, ERS record and camera is placed on links as a link ID and a position
+   along it, with a match score; a match the rules cannot settle (the wrong direction, a ramp or the
+   mainline) is flagged, not guessed. A gazetteer turns mileposts, exits and cross streets into positions
+   on the same links. The storyboards' road axis is now km along the I-10 GMNS links, with a tick where
+   each link ends, and a ramp closure is drawn at the gore of the ramp link it names: Exit 145 (7th St,
+   link 434) in case B and Exit 151 (University Dr, link 1148) in case D. Both are matched by the street
+   the record names; in both, the record's coordinate sits at an entrance-ramp merge instead (links 1339
+   and 1677), so the ramp still needs a look on camera.
 2. **Register each camera view to the links.** For the site and nearest cameras of cases A, B and E
    (about 8 views), click 6–8 landmarks in a frame (lane-line ends, gore points, bridge edges) and the
    same points on the map. A geometric fit gives the camera-to-road map: every pixel gets a link and a
@@ -270,7 +273,7 @@ python3.12 -m venv ~/.venvs/gmns && ~/.venvs/gmns/bin/pip install osm2gmns==1.0.
 ~/.venvs/gmns/bin/python scripts/15_osm_network.py # downloads OSM once; data/network/node.csv, link.csv
 python scripts/16_place_sources.py          # I-10 path; XD segments, ERS events and cameras on links
 python scripts/17_gazetteer.py              # mileposts, exits, cross streets; ERS milepost check
-python scripts/18_network_map.py           # topology checks; out/network/network_map.html (+ .gpkg with geopandas)
+python scripts/18_network_map.py           # camera stretch only: I-10 checks, out/network/network_map.html (+ .gpkg)
 ```
 
 `scripts/frame_viewer.py` is a local viewer for any camera at any minute, reading frames straight from
@@ -291,7 +294,7 @@ the tars (`python scripts/frame_viewer.py`, then http://localhost:8511).
 | `gmns.py` | Loads the network; walks the I-10 mainline path in each direction |
 | `16` | Places INRIX XD segments, ERS events and cameras on links, flagging what the rules cannot settle |
 | `17` | Gazetteer of mileposts, exits and cross streets; checks ERS milepost text against the event position |
-| `18` | Topology checks and an interactive layer map of the network and everything placed on it (private: holds INRIX geometry) |
+| `18` | Topology checks of I-10 along the camera stretch and an interactive layer map of it (private: holds INRIX geometry) |
 | `typical_days.py` | Same-weekday INRIX speeds for the usual-day travel time |
 
 ## Known limits

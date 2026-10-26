@@ -29,6 +29,10 @@
   .bm button.on { background: var(--adot); color: #fff; border-color: var(--adot); }
   .cases { display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px; }
   .cases button { font-weight: 600; }
+  #colorby { width: 100%; padding: 5px 6px; border: 1px solid var(--line); border-radius: 6px; font: inherit; background: #fff; }
+  #legend { display: flex; flex-wrap: wrap; gap: 4px 10px; margin-top: 6px; font-size: 12px; color: var(--muted); }
+  #legend span { display: inline-flex; align-items: center; gap: 4px; }
+  #legend i { display: inline-block; width: 16px; height: 4px; border-radius: 2px; }
   #q { width: 100%; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; font: inherit; }
   #hits { margin-top: 4px; }
   .hit, .prob { padding: 4px 6px; border-radius: 4px; cursor: pointer; font-size: 13px; }
@@ -58,10 +62,19 @@
 <div id="app">
   <aside id="panel">
     <h1>I-10 network check</h1>
-    <div class="sub">GMNS links from OpenStreetMap, with INRIX segments, ERS events, cameras and the gazetteer placed on them</div>
+    <div class="sub" id="sub"></div>
 
     <h2>Base map</h2>
     <div class="bm" id="bm"></div>
+
+    <h2>Colour GMNS links by</h2>
+    <select id="colorby">
+      <option value="link">Each link (neighbours differ)</option>
+      <option value="type">Type: mainline or ramp</option>
+      <option value="lanes">Lanes</option>
+      <option value="dir">Direction</option>
+    </select>
+    <div id="legend"></div>
 
     <h2>Layers</h2>
     <div id="layers"></div>
@@ -89,7 +102,7 @@ const canvas = L.canvas({ padding: 0.5, tolerance: 6 });
 const BASE = {
   Light: L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}", { maxZoom: 20, maxNativeZoom: 16, attribution: "Base map © Esri" }),
   Satellite: L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}", { maxZoom: 20, maxNativeZoom: 19, attribution: "Imagery © Esri" }),
-  OSM: L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 20, maxNativeZoom: 19, attribution: "© OpenStreetMap contributors" }),
+  Streets: L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}", { maxZoom: 20, maxNativeZoom: 19, attribution: "Base map © Esri" }),
 };
 let base = BASE.Light.addTo(map);
 const bm = document.getElementById("bm");
@@ -124,11 +137,30 @@ for (const p of ["E", "W"]) {
   L.polyline(P.c, { renderer: canvas, color: p === "E" ? C.eb : C.wb, weight: 7, opacity: 0.35, interactive: false }).addTo(p === "E" ? G.pathE : G.pathW);
 }
 
+// link colours: each link differs from its neighbours, or by type, lanes or direction
+const LINKPAL = ["#0072B2", "#D55E00", "#009E73", "#CC79A7", "#E69F00", "#56B4E9", "#000000", "#8c6d31"];
+const LANEPAL = ["#c6dbef", "#9ecae1", "#6baed6", "#4292c6", "#2171b5", "#08519c", "#08306b"];
+let MODE = "link", SAT = false;
+function linkColor(l) {
+  const ramp = l.hw.endsWith("_link");
+  if (MODE === "link") return LINKPAL[l.col % LINKPAL.length];
+  if (MODE === "lanes") return l.ln ? LANEPAL[Math.min(l.ln, 7) - 1] : "#e0e0e0";
+  if (MODE === "dir" && !ramp) return l.path === "E" ? C.eb : l.path === "W" ? C.wb : C.main;
+  return ramp ? (SAT ? "#ffd54f" : C.ramp) : (SAT ? "#ffffff" : C.main);
+}
+function legend() {
+  const sw = (c, t) => `<span><i style="background:${c}"></i>${t}</span>`;
+  const el = document.getElementById("legend");
+  if (MODE === "link") el.innerHTML = `6 colours repeat; two links that share a node never share a colour. Turn on GMNS nodes to see where each link starts and ends.`;
+  else if (MODE === "lanes") el.innerHTML = LANEPAL.map((c, i) => sw(c, i === 6 ? "7+" : i + 1)).join("") + sw("#e0e0e0", "missing");
+  else if (MODE === "dir") el.innerHTML = sw(C.eb, "EB") + sw(C.wb, "WB") + sw(SAT ? "#ffd54f" : C.ramp, "ramps");
+  else el.innerHTML = sw(SAT ? "#ffffff" : C.main, "mainline") + sw(SAT ? "#ffd54f" : C.ramp, "ramps");
+}
+
 for (const l of D.links) {
   const ramp = l.hw.endsWith("_link");
-  const style = ramp ? { color: C.ramp, weight: 2 } : { color: C.main, weight: 1.5 + 0.45 * (l.ln || 1) };
-  const pl = L.polyline(l.c, { renderer: canvas, ...style });
-  pl._ramp = ramp;
+  const pl = L.polyline(l.c, { renderer: canvas, color: linkColor(l), weight: ramp ? 2.5 : 1.5 + 0.45 * (l.ln || 1) });
+  pl._ramp = ramp; pl._l = l;
   pl.bindPopup(() => pop(`Link ${l.id}`, [
     row("type", l.hw + (l.ref ? ` · ${l.ref}` : "")), row("lanes", l.ln ?? "missing in OSM"), row("length", `${l.len} m`),
     row("I-10 path", l.path ? `${dirName(l.path)}, starts at km ${l.km}` : ""), row("exit", l.jref), row("to", l.dest),
@@ -202,13 +234,16 @@ for (const g of D.gaz) {
 
 // brighter links on the satellite image
 function restyle(sat) {
-  document.getElementById("map").classList.toggle("sat", sat);
+  if (sat !== undefined) SAT = sat;
+  document.getElementById("map").classList.toggle("sat", SAT);
   for (const pl of Object.values(index.links)) {
-    const color = pl._ramp ? (sat ? "#ffd54f" : C.ramp) : (sat ? "#ffffff" : C.main);
+    const color = linkColor(pl._l);
     pl._base = { ...pl.options, color };
     if (pl !== selected) pl.setStyle({ color });
   }
+  legend();
 }
+document.getElementById("colorby").onchange = ev => { MODE = ev.target.value; restyle(); };
 
 // direction arrows, drawn only when zoomed in
 function drawArrows() {
@@ -228,13 +263,13 @@ map.on("zoomend moveend", drawArrows);
 
 // ---- layer panel ----
 const LAYERS = [
-  ["GMNS mainline links", G.main, C.main, D.links.filter(l => !l.hw.endsWith("_link")).length, true],
-  ["GMNS ramps", G.ramps, C.ramp, D.links.filter(l => l.hw.endsWith("_link")).length, true],
+  ["GMNS links: I-10 mainline", G.main, C.main, D.links.filter(l => !l.hw.endsWith("_link")).length, true],
+  ["GMNS links: ramps", G.ramps, C.ramp, D.links.filter(l => l.hw.endsWith("_link")).length, true],
   ["Direction arrows (zoom ≥ 16)", G.arrows, "#333", "", true],
   ["GMNS nodes", G.nodes, "#888", D.nodes.filter(n => !n.jn).length, false, "dot"],
-  ["Exit gore nodes", G.junctions, "#000", D.nodes.filter(n => n.jn).length, false, "dot"],
-  [`I-10 EB path (${D.paths.E.km} km)`, G.pathE, C.eb, D.paths.E.n, true],
-  [`I-10 WB path (${D.paths.W.km} km)`, G.pathW, C.wb, D.paths.W.n, true],
+  ["GMNS nodes: exit gores", G.junctions, "#000", D.nodes.filter(n => n.jn).length, false, "dot"],
+  [`I-10 EB path: chained links (${D.paths.E.km} km)`, G.pathE, C.eb, "", false],
+  [`I-10 WB path: chained links (${D.paths.W.km} km)`, G.pathW, C.wb, "", false],
   ["INRIX XD: matched", G.xdOk, C.ok, D.xd.filter(x => x.st !== "flag").length, false],
   ["INRIX XD: flagged", G.xdFlag, C.flag, D.xd.filter(x => x.st === "flag").length, true],
   ["ERS events", G.ers, C.crash, D.ers.length, true, "dot"],
@@ -293,6 +328,8 @@ for (const [cat, items] of Object.entries(byCat)) {
 }
 
 map.fitBounds(L.latLngBounds(D.paths.E.c));
+legend();
+document.getElementById("sub").textContent = `Camera stretch of I-10, MP ${D.paths.E.mp[0]}–${D.paths.E.mp[1]} (${D.paths.E.km} km EB): GMNS links from OpenStreetMap, with INRIX segments, ERS events, cameras and the gazetteer placed on them`;
 document.getElementById("toggle").onclick = () => document.getElementById("panel").classList.toggle("hide");
 </script>
 </body>
